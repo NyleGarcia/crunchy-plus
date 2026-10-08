@@ -1,0 +1,39 @@
+:root {
+  --bg: #0b0c10;
+  --surface: #14161c;
+  --surface-2: #1c1f27;
+  --line: rgb(255 255 255 / 0.08);
+  --text: #eceef3;
+  --muted: #9da1b0;
+  --accent: #ff7a1a;
+  --ok: #3ddc97;
+  --err: #ff5470;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.btn {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: 9px;
+  padding: 7px 12px;
+  font-weight: 600;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #160b02; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.muted { color: var(--muted); }
+input, select {
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 9px;
+}
+a { color: var(--accent); }

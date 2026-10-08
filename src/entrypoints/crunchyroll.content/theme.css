@@ -1,0 +1,163 @@
+/*
+ * Crunchy+ page styles. Always injected; root classes on <html> switch the parts on:
+ *   .crunchy-plus       modern theme
+ *   .cp-compact-hero    half-height home hero
+ *   .cp-hide-<key>      declutter switches (banners, manga, news, games, store, music)
+ *
+ * CR class names are BEM blocks with a 5-char hash suffix ("browse-card--esJdT",
+ * "browse-card__title--Ab12c"), so match the stable prefix with [class*="block--"] /
+ * [class*="block__element--"]. data-t hooks are unhashed and preferred where they exist.
+ * Selectors verified against the logged-in home page (2026-10). Anything that stops
+ * matching simply falls back to stock CR.
+ */
+
+/* ───────────────────────── Theme ───────────────────────── */
+
+:root.crunchy-plus {
+  --cp-bg: #0b0c10;
+  --cp-surface: #14161c;
+  --cp-line: rgb(255 255 255 / 0.07);
+  --cp-muted: #9a9dab;
+  --cp-accent: #ff7a1a;
+  --cp-radius: 12px;
+  --cp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: dark;
+  scrollbar-color: #2a2d36 transparent;
+  scrollbar-width: thin;
+}
+
+:root.crunchy-plus body {
+  background: var(--cp-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header: translucent + blur instead of the solid bar */
+:root.crunchy-plus [data-t='header-default'] {
+  background: rgb(11 12 16 / 0.72) !important;
+  backdrop-filter: saturate(160%) blur(14px);
+  border-bottom: 1px solid var(--cp-line);
+  box-shadow: none !important;
+}
+
+/* Row headers: a bit more presence, calmer description */
+:root.crunchy-plus [class*='feed-header__title--'] {
+  letter-spacing: -0.01em;
+}
+:root.crunchy-plus [class*='feed-header__description--'] {
+  color: var(--cp-muted);
+  max-width: 70ch;
+}
+:root.crunchy-plus [data-t^='personalized-collection-']:not([data-t$='-card']) {
+  margin-bottom: 8px;
+}
+
+/* Series cards (posters) */
+:root.crunchy-plus [class*='browse-card__poster-wrapper--'] {
+  border-radius: var(--cp-radius);
+  overflow: hidden;
+  transition:
+    transform 200ms var(--cp-ease),
+    box-shadow 200ms ease;
+}
+:root.crunchy-plus [class*='browse-card--']:hover [class*='browse-card__poster-wrapper--'] {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px -16px rgb(0 0 0 / 0.85), 0 0 0 1px var(--cp-line);
+}
+/* CR's hover card matches the rounded poster */
+:root.crunchy-plus [class*='browse-card-hover__content--'],
+:root.crunchy-plus [class*='browse-card-hover__poster-wrapper--'] {
+  border-radius: var(--cp-radius);
+  overflow: hidden;
+}
+
+/* Episode cards (thumbnails) */
+:root.crunchy-plus [class*='playable-thumbnail--'] {
+  border-radius: calc(var(--cp-radius) - 2px);
+  overflow: hidden;
+  transition: transform 200ms var(--cp-ease);
+}
+:root.crunchy-plus [class*='playable-card--']:hover [class*='playable-thumbnail--'] {
+  transform: translateY(-2px);
+}
+:root.crunchy-plus [class*='playable-card-hover--'] {
+  border-radius: var(--cp-radius);
+  overflow: hidden;
+}
+
+/* Continue-watching progress */
+:root.crunchy-plus [class*='progress-bar__progress--'] {
+  background: var(--cp-accent) !important;
+}
+:root.crunchy-plus [class*='playable-thumbnail__progress-bar--'] {
+  height: 3px;
+}
+
+/* Hero: rounded inset and softer arrows */
+:root.crunchy-plus [class*='hero-carousel__arrow--'] {
+  backdrop-filter: blur(8px);
+  border-radius: 999px;
+}
+:root.crunchy-plus [class*='hero-carousel__page--'] {
+  border-radius: 999px;
+}
+
+/* Upsell clutter is always noise */
+:root.crunchy-plus [data-t='upsell-btn'],
+:root.crunchy-plus [data-t='upsell-popup'],
+:root.crunchy-plus [class*='user-menu-upsell-button'] {
+  display: none !important;
+}
+
+/* ───────────────────────── Compact hero ───────────────────────── */
+
+:root.cp-compact-hero [class*='hero-container__sizer--'] {
+  padding-top: 28% !important;
+  height: auto !important;
+}
+:root.cp-compact-hero [class*='hero-container--'] {
+  max-height: 46vh;
+  overflow: hidden;
+}
+:root.cp-compact-hero [class*='hero-card-layout__body--'] [class*='description'] {
+  display: none;
+}
+
+/* ───────────────────────── Declutter ───────────────────────── */
+
+/* Promo banners between feed rows */
+:root.cp-hide-banners [data-t='feed-banner'],
+:root.cp-hide-banners [class*='feed-banner--'] {
+  display: none !important;
+}
+
+/* Rows are identified by the cards they contain (row numbers change between visits). */
+:root.cp-hide-manga [data-t^='personalized-collection-']:has([class*='manga-card-static--']),
+:root.cp-hide-manga [class*='manga-collection-'],
+:root.cp-hide-manga [data-t='header-menu-manga'] {
+  display: none !important;
+}
+
+:root.cp-hide-news [class*='news-and-editorial'],
+:root.cp-hide-news [data-t^='personalized-collection-']:has([class*='news-card']),
+:root.cp-hide-news [data-t='header-menu-news'] {
+  display: none !important;
+}
+
+:root.cp-hide-music [class*='music-video-collection-'],
+:root.cp-hide-music [data-t^='personalized-collection-']:has([class*='music-video']) {
+  display: none !important;
+}
+
+:root.cp-hide-games [data-t='header-menu-games'],
+:root.cp-hide-games [data-t^='personalized-collection-']:has([class*='game-card']) {
+  display: none !important;
+}
+
+:root.cp-hide-store [data-t='header-menu-store'] {
+  display: none !important;
+}
+
+/* Hidden by "hide completed" (badges.ts) */
+[data-crunchyplus-hidden] {
+  display: none !important;
+}

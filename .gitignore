@@ -1,0 +1,17 @@
+node_modules/
+.output/
+.wxt/
+.tmp/
+scratch/
+.env
+*.zip
+public/undo/
+
+# local tooling / captures — may hold tokens or personal history
+.claude/
+*.har
+*.log
+.env.*
+*.pem
+.DS_Store
+coverage/
