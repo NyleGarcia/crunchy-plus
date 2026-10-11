@@ -39,6 +39,8 @@ export interface ScrapedSeason {
 
 export interface Scrape {
   historyCount: number;
+  /** History entries fetched this time (new or changed plays); equals historyCount on a full scan. */
+  historyNew: number;
   watchlistCount: number;
   seasons: ScrapedSeason[];
 }
@@ -115,7 +117,8 @@ export interface ExportResult {
 /** Operations run inside a Crunchyroll tab (it holds the CR session). */
 export interface CrOps {
   profile: { args: void; result: import('./cr-api').ProfileInfo };
-  scrape: { args: void; result: Scrape };
+  /** `full`: ignore the scan cache and read everything again. */
+  scrape: { args: { full?: boolean } | void; result: Scrape };
   upnext: { args: void; result: UpNextItem[] };
   exportPlan: { args: void; result: ExportPlan };
   exportApply: { args: ExportPlan; result: ExportResult };
@@ -190,10 +193,27 @@ export interface BgResponses {
 
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: string };
 
+/** Read-only requests: safe to resend if the service worker restarted mid-request. */
+const RETRYABLE = new Set<BgRequest['type']>(['anilist:status', 'anilist:list', 'anilist:listFull', 'anilist:search', 'jev:status']);
+/** MV3 service worker was asleep, restarting, or reloaded (dev) — not a real failure. */
+const SW_GONE = /message channel closed|Receiving end does not exist|Could not establish connection/i;
+
 export async function bg<K extends BgRequest['type']>(
   msg: Extract<BgRequest, { type: K }>,
 ): Promise<BgResponses[K]> {
-  const r = (await browser.runtime.sendMessage(msg)) as Envelope<BgResponses[K]> | undefined;
+  let r: Envelope<BgResponses[K]> | undefined;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = (await browser.runtime.sendMessage(msg)) as Envelope<BgResponses[K]> | undefined;
+      break;
+    } catch (e) {
+      const gone = SW_GONE.test(e instanceof Error ? e.message : String(e));
+      // "Receiving end does not exist" = never delivered, so any request may resend; otherwise reads only.
+      const neverDelivered = gone && /Receiving end|establish connection/i.test(String(e));
+      if (attempt >= 2 || !gone || !(neverDelivered || RETRYABLE.has(msg.type))) throw e;
+      await new Promise((ok) => setTimeout(ok, 300 * (attempt + 1)));
+    }
+  }
   if (!r) throw new Error('Background did not respond');
   if (!r.ok) throw new Error(r.error);
   return r.data;

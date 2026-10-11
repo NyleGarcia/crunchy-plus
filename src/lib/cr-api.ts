@@ -213,8 +213,15 @@ const HISTORY_VARIANTS: Params[] = [
 /** The history query shape that last worked (skips the trial-and-error next time). */
 let historyShape: Params | null = null;
 
-/** Watch history, newest first. `max` stops early (e.g. recent activity only). */
-export async function watchHistory(onPage?: (n: number) => void, max = Infinity): Promise<HistoryItem[]> {
+/**
+ * Watch history, newest first. `max` stops early (e.g. recent activity only); `known` stops paging
+ * once a page holds an entry the caller already has (everything after it is older, so already known).
+ */
+export async function watchHistory(
+  onPage?: (n: number) => void,
+  max = Infinity,
+  known?: (h: HistoryItem) => boolean,
+): Promise<HistoryItem[]> {
   const path = `/content/v2/${await account()}/watch-history`;
   let first: Page<HistoryItem> | null = null;
   let shape: Params = {};
@@ -236,7 +243,7 @@ export async function watchHistory(onPage?: (n: number) => void, max = Infinity)
   const out = [...first.data];
   onPage?.(out.length);
   let r = first;
-  for (let i = 0; i < 500 && out.length < max; i++) {
+  for (let i = 0; i < 500 && out.length < max && !(known && r.data.some(known)); i++) {
     const next = r.next_page ?? r.meta?.next_page;
     const size = Number(shape.page_size) || first.data.length;
     try {

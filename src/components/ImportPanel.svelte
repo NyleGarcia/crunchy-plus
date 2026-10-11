@@ -50,6 +50,8 @@
   let replayMode = $state<'saved' | 'fresh' | null>(null);
   let hasSnapshot = $state(false);
   let replayFresh = $state(false);
+  /** Ignore the scan cache: read all history and every season again. */
+  let fullScan = $state(false);
   $effect(() => {
     lastScanItem.getValue().then((s) => (hasSnapshot = !!s));
   });
@@ -89,7 +91,7 @@
   let label = $state('');
   let error = $state('');
   let rows = $state<Row[]>([]);
-  let stats = $state({ history: 0, watchlist: 0 });
+  let stats = $state({ history: 0, historyNew: 0, watchlist: 0 });
   let recentDays = $state(45);
   let idleStatus = $state<ListStatus>('PAUSED');
   let onlyChanges = $state(true);
@@ -275,8 +277,8 @@
     try {
       phase = 'scraping';
       label = 'Connecting to Crunchyroll tab…';
-      const scrape = await crOp('scrape');
-      stats = { history: scrape.historyCount, watchlist: scrape.watchlistCount };
+      const scrape = await crOp('scrape', { full: fullScan });
+      stats = { history: scrape.historyCount, historyNew: scrape.historyNew, watchlist: scrape.watchlistCount };
       baseline = await lastScanItem.getValue();
       replayMode = null;
       await runMatching(scrape.seasons, false);
@@ -299,7 +301,7 @@
     try {
       baseline = snap;
       replayMode = fresh ? 'fresh' : 'saved';
-      stats = { history: 0, watchlist: 0 };
+      stats = { history: 0, historyNew: 0, watchlist: 0 };
       await runMatching(snap.seasons, fresh);
       phase = 'review';
     } catch (e) {
@@ -559,6 +561,7 @@
         <div class="row">
           <button class="btn primary" onclick={start}>Yes, scan this profile</button>
           <button class="btn" onclick={() => (phase = 'idle')}>Cancel</button>
+          <label title="Normally only history newer than the last scan is read and already-resolved seasons are reused"><input type="checkbox" bind:checked={fullScan} /> full rescan (ignore cache)</label>
         </div>
       {/if}
     </div>
@@ -571,7 +574,7 @@
 
   {#if rows.length}
     <p class="muted">
-      {stats.history} history items · {stats.watchlist} watchlist · {rows.length} seasons
+      {stats.history} history items{stats.historyNew < stats.history ? ` (${stats.historyNew} new)` : ''} · {stats.watchlist} watchlist · {rows.length} seasons
       {#if unmatched}· <b class="warn">{unmatched} need a match</b>{/if}
     </p>
     {#if baseline}

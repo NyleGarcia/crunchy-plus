@@ -42,7 +42,7 @@ export default defineContentScript({
       if (msg.type !== 'cr:op') return;
       const ops: Record<CrOp, () => Promise<unknown>> = {
         profile: () => cr.activeProfile(),
-        scrape: () => scrape(),
+        scrape: () => scrape(msg.args as { full?: boolean } | undefined),
         upnext: () => upNext(),
         exportPlan: () => exportPlan(),
         exportApply: () => exportApply(msg.args as ExportPlan),

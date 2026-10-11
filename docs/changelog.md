@@ -1,9 +1,12 @@
 ---
 title: Changelog
 tags: [changelog]
-updated: 2026-10-08
+updated: 2026-10-11
 ---
 # Changelog
+
+## Unreleased
+- Import scan is incremental: watch history is read newest-first only until an already-cached entry, season episode lists are reused unless the season got new plays, and watchlist series lookups are cached (`local:scanCache.v1`, per profile). "Full rescan (ignore cache)" toggle on the profile confirm step.
 
 ## 0.1.0 — 2026-10-08
 Initial version.

@@ -1,5 +1,6 @@
 import { storage } from '#imports';
 import type { ScrapedSeason, UpNextItem } from './messages';
+import type { ScanCache } from './scan-cache';
 import type { Segment } from './segments';
 import type { ListStatus, Mode, SeasonInfo } from './types';
 
@@ -131,3 +132,5 @@ export async function getSettings(): Promise<Settings> {
 export async function patchSettings(patch: Partial<Settings>) {
   await settingsItem.setValue({ ...(await getSettings()), ...patch });
 }
+/** Raw Crunchyroll scan data (history + season episode lists) so a rescan only fetches what's new. */
+export const scanCacheItem = storage.defineItem<ScanCache | null>('local:scanCache.v1', { fallback: null });
