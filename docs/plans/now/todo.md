@@ -5,7 +5,6 @@ updated: 2026-10-08
 ---
 # Now
 - [ ] Hide "[Crunchy+]" console logs behind a popup "Debug logging" toggle (off by default)
-- [ ] `[Crunchy+] seasons query shape: {}` — seasons endpoint returning an empty object on some series; confirm the query-variant fallback still yields seasons
 - [ ] Live-verify series + watch page selectors (need saved logged-in pages)
 - [ ] Live-verify player auto-sync at 80% → AniList progress bump
 - [ ] Live-verify export: CR watchlist add (`POST /content/v2/{id}/watchlist`), Crunchylists create/add/remove + limits — preview first

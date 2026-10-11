@@ -117,7 +117,7 @@ export async function startBadges() {
       clearTimeout(timer);
       timer = window.setTimeout(paint, 250);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 }
 

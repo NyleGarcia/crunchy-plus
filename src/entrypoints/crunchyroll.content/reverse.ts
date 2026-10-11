@@ -175,7 +175,7 @@ async function seasonFor(seriesId: string, e: AniListItem, inv: Awaited<ReturnTy
   if (byNumber) return byNumber.id;
   const titles = [e.media.title.english, e.media.title.romaji].filter((t): t is string => !!t);
   return seasons
-    .map((s) => ({ s, score: Math.max(...titles.map((t) => similarity(s.title, t))) }))
+    .map((s) => ({ s, score: Math.max(...titles.map((t) => similarity(s.title ?? "", t))) }))
     .sort((a, b) => b.score - a.score)[0]!.s.id;
 }
 

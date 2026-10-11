@@ -29,7 +29,7 @@ export async function startRows() {
       clearTimeout(t);
       t = window.setTimeout(scan, 200);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 }
 

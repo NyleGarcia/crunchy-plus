@@ -26,5 +26,7 @@ let seq = 0;
 export function toast(text: string, tone: Toast['tone'] = 'ok', action?: Toast['action'], ms = 6000) {
   const t: Toast = { id: ++seq, text, tone, action };
   ui.toasts.push(t);
-  setTimeout(() => (ui.toasts = ui.toasts.filter((x) => x.id !== t.id)), ms);
+  setTimeout(() => {
+    ui.toasts = ui.toasts.filter((x) => x.id !== t.id);
+  }, ms);
 }
