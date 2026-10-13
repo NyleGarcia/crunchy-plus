@@ -263,22 +263,39 @@ async function syncEpisode(np: Extract<BgRequest, { type: 'sync:episode' }>['np'
 
 let listCache: { user: number; at: number; items: AniListItem[] } | null = null;
 
+/** Resolve once `tabId` finishes loading. */
+function tabLoaded(tabId: number): Promise<void> {
+  return new Promise<void>((done) => {
+    const l = (id: number, info: { status?: string }) => {
+      if (id === tabId && info.status === 'complete') {
+        browser.tabs.onUpdated.removeListener(l);
+        done();
+      }
+    };
+    browser.tabs.onUpdated.addListener(l);
+  });
+}
+
 /** Run an operation inside a Crunchyroll tab (it holds the session); open one if needed. */
 async function crTabOp(op: CrOp, args: unknown): Promise<unknown> {
-  let [tab] = await browser.tabs.query({ url: '*://www.crunchyroll.com/*' });
+  // Skip discarded tabs: their content script is gone until Chrome reloads them.
+  let [tab] = await browser.tabs.query({ url: '*://www.crunchyroll.com/*', discarded: false });
   if (!tab?.id) {
     tab = await browser.tabs.create({ url: 'https://www.crunchyroll.com/history', active: false });
-    await new Promise<void>((done) => {
-      const l = (id: number, info: { status?: string }) => {
-        if (id === tab!.id && info.status === 'complete') {
-          browser.tabs.onUpdated.removeListener(l);
-          done();
-        }
-      };
-      browser.tabs.onUpdated.addListener(l);
-    });
+    await tabLoaded(tab.id!);
   }
-  const r = await browser.tabs.sendMessage(tab.id!, { type: 'cr:op', op, args });
+  const send = () => browser.tabs.sendMessage(tab!.id!, { type: 'cr:op', op, args });
+  let r;
+  try {
+    r = await send();
+  } catch (e) {
+    // No listener: the tab predates this extension load (content scripts only inject on navigation).
+    if (!/Receiving end does not exist|Could not establish connection/i.test(String(e))) throw e;
+    const loaded = tabLoaded(tab.id!);
+    await browser.tabs.reload(tab.id!);
+    await loaded;
+    r = await send();
+  }
   if (!r?.ok) throw new Error(r?.error ?? 'Crunchyroll tab did not answer — reload it and retry.');
   return r.data;
 }
