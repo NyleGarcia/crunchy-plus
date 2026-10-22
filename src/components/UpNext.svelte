@@ -1,6 +1,13 @@
 <script lang="ts">
   import { crOp, type UpNextItem, sortUpNext, type UpNextSort } from '@/lib/messages';
   import { getSettings, patchSettings } from '@/lib/settings';
+  import Segmented from '@/components/Segmented.svelte';
+  import Busy from '@/components/Busy.svelte';
+  import * as Table from '@/components/ui/table';
+  import { Badge } from '@/components/ui/badge';
+  import { Button } from '@/components/ui/button';
+  import Play from '@lucide/svelte/icons/play';
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 
   let items = $state<UpNextItem[] | null>(null);
   let loading = $state(false);
@@ -15,6 +22,10 @@
     sort = next;
     patchSettings({ upNextSort: next });
   }
+  const SORTS: { id: UpNextSort; label: string }[] = [
+    { id: 'recent', label: 'Last watched' },
+    { id: 'popular', label: 'Most popular' },
+  ];
   const ready = $derived(sortUpNext(items?.filter((i) => i.nextEpisode) ?? [], sort));
   const waiting = $derived(items?.filter((i) => !i.nextEpisode) ?? []);
 
@@ -45,218 +56,70 @@
   }
 </script>
 
-<section class="pane">
-  <header class="head">
+<section class="grid gap-4">
+  <header class="flex flex-wrap items-start justify-between gap-4">
     <div>
-      <h2>Up next</h2>
-      <p class="muted">Your AniList <b>Watching</b> list, matched to Crunchyroll. Play picks up at the episode after your AniList progress.</p>
+      <h2 class="mb-1 text-2xl font-bold tracking-[-0.02em]">Up next</h2>
+      <p class="text-muted-foreground m-0">Your AniList <b>Watching</b> list, matched to Crunchyroll. Play picks up at the episode after your AniList progress.</p>
     </div>
-    <div class="actions">
-      <div class="seg" role="radiogroup" aria-label="Order">
-        <button role="radio" aria-checked={sort === 'recent'} class:on={sort === 'recent'} onclick={() => setSort('recent')}>Last watched</button>
-        <button role="radio" aria-checked={sort === 'popular'} class:on={sort === 'popular'} onclick={() => setSort('popular')}>Most popular</button>
-      </div>
-      <button class="btn" disabled={loading} onclick={load}>{loading ? 'Loading…' : 'Refresh'}</button>
+    <div class="flex items-center gap-2.5">
+      <Segmented options={SORTS} value={sort} ariaLabel="Order" size="sm" onchange={setSort} />
+      <Button variant="outline" disabled={loading} onclick={load}>
+        <RefreshCw class={loading ? 'animate-spin' : ''} aria-hidden="true" />{loading ? 'Loading…' : 'Refresh'}
+      </Button>
     </div>
   </header>
 
-  {#if loading && !items}<p class="status"><span class="spin"></span>{label || 'Loading…'}</p>{/if}
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if loading && !items}<Busy {label} />{/if}
+  {#if error}<p class="text-destructive m-0">{error}</p>{/if}
 
   {#if items}
     {#if ready.length}
-      <div class="grid">
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
         {#each ready as it (it.aniId)}
-          <a class="card" href={it.nextEpisode!.url} target="_blank" rel="noreferrer">
-            {#if it.cover}<img src={it.cover} alt="" />{/if}
-            <div class="body">
-              <b>{it.title}</b>
-              <span class="ep">Ep {it.progress + 1}{it.nextEpisode!.title ? ` · ${it.nextEpisode!.title}` : ''}</span>
-              <span class="meta">
-                {#if it.available && it.available > 1}<em class="new">{it.available} to watch</em>{/if}
+          <a
+            class="bg-card text-card-foreground group relative flex gap-3 rounded-[14px] p-2.5 no-underline ring-1 ring-foreground/10 transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:ring-primary focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            href={it.nextEpisode!.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {#if it.cover}<img src={it.cover} alt="" class="h-[86px] w-[60px] flex-none rounded-lg object-cover" />{/if}
+            <div class="grid min-w-0 content-center gap-0.5">
+              <b class="truncate">{it.title}</b>
+              <span class="text-muted-foreground truncate">Ep {it.progress + 1}{it.nextEpisode!.title ? ` · ${it.nextEpisode!.title}` : ''}</span>
+              <span class="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
+                {#if it.available && it.available > 1}<Badge class="h-4 px-1.5 text-[11px]">{it.available} to watch</Badge>{/if}
                 {it.progress}{it.total ? `/${it.total}` : ''} on AniList
               </span>
             </div>
-            <span class="play" aria-hidden="true">▶</span>
+            <Play class="text-primary absolute right-3 bottom-2.5 size-4 fill-current opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden="true" />
           </a>
         {/each}
       </div>
     {:else if !loading}
-      <p class="muted">Nothing ready to watch — you're caught up.</p>
+      <p class="text-muted-foreground m-0">Nothing ready to watch — you're caught up.</p>
     {/if}
 
     {#if waiting.length}
-      <h3>Caught up / not found</h3>
-      <ul class="rows">
-        {#each waiting as it (it.aniId)}
-          <li>
-            <span class="t">{it.title}</span>
-            <span class="muted">
-              {#if !it.seriesId}not found on Crunchyroll
-              {:else if it.error}<span class="err">{it.error}</span>
-              {:else if it.airing}ep {it.airing.episode} airs {airsIn(it.airing.airingAt)}
-              {:else}caught up ({it.progress}{it.total ? `/${it.total}` : ''}){/if}
-            </span>
-            {#if it.seriesId}<a href={`https://www.crunchyroll.com/series/${it.seriesId}`} target="_blank" rel="noreferrer">series</a>{/if}
-          </li>
-        {/each}
-      </ul>
+      <h3 class="text-muted-foreground mt-3 text-xs font-semibold tracking-[0.08em] uppercase">Caught up / not found</h3>
+      <Table.Root>
+        <Table.Body>
+          {#each waiting as it (it.aniId)}
+            <Table.Row class="hover:bg-transparent">
+              <Table.Cell class="w-full px-0 whitespace-normal">{it.title}</Table.Cell>
+              <Table.Cell class="text-muted-foreground px-3">
+                {#if !it.seriesId}not found on Crunchyroll
+                {:else if it.error}<span class="text-destructive">{it.error}</span>
+                {:else if it.airing}ep {it.airing.episode} airs {airsIn(it.airing.airingAt)}
+                {:else}caught up ({it.progress}{it.total ? `/${it.total}` : ''}){/if}
+              </Table.Cell>
+              <Table.Cell class="px-0 text-right">
+                {#if it.seriesId}<a href={`https://www.crunchyroll.com/series/${it.seriesId}`} target="_blank" rel="noreferrer">series</a>{/if}
+              </Table.Cell>
+            </Table.Row>
+          {/each}
+        </Table.Body>
+      </Table.Root>
     {/if}
   {/if}
 </section>
-
-<style>
-  .pane {
-    display: grid;
-    gap: 16px;
-  }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  h2 {
-    margin: 0 0 4px;
-    font-size: 24px;
-    letter-spacing: -0.02em;
-  }
-  h3 {
-    margin: 12px 0 0;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-  p {
-    margin: 0;
-  }
-  .actions {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .seg {
-    display: inline-flex;
-    padding: 3px;
-    border-radius: 10px;
-    background: rgb(255 255 255 / 0.05);
-  }
-  .seg button {
-    border: 0;
-    background: none;
-    padding: 6px 12px;
-    border-radius: 8px;
-    color: var(--muted);
-    font-weight: 600;
-  }
-  .seg button.on {
-    background: var(--accent);
-    color: #160b02;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 12px;
-  }
-  .card {
-    position: relative;
-    display: flex;
-    gap: 12px;
-    padding: 10px;
-    border-radius: 14px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    color: var(--text);
-    text-decoration: none;
-    transition:
-      transform 160ms ease,
-      border-color 160ms ease;
-  }
-  .card:hover {
-    transform: translateY(-2px);
-    border-color: var(--accent);
-  }
-  .card img {
-    width: 60px;
-    height: 86px;
-    object-fit: cover;
-    border-radius: 8px;
-    flex: none;
-  }
-  .body {
-    display: grid;
-    align-content: center;
-    gap: 3px;
-    min-width: 0;
-  }
-  .body b {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .ep {
-    color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .meta {
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .new {
-    font-style: normal;
-    color: var(--accent);
-    font-weight: 600;
-    margin-right: 6px;
-  }
-  .play {
-    position: absolute;
-    right: 12px;
-    bottom: 10px;
-    color: var(--accent);
-    opacity: 0;
-    transition: opacity 160ms ease;
-  }
-  .card:hover .play {
-    opacity: 1;
-  }
-  .rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .rows li {
-    display: flex;
-    gap: 12px;
-    align-items: baseline;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .rows .t {
-    flex: 1;
-    min-width: 0;
-  }
-  .status {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .spin {
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--muted);
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  .err {
-    color: var(--err);
-  }
-</style>

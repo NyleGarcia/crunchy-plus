@@ -1,0 +1,117 @@
+/*
+ * Hub + popup styling: Tailwind v4 + shadcn-svelte tokens. Imported by the extension pages only (hub/main.ts,
+ * popup/main.ts) — never by content scripts, so nothing here reaches Crunchyroll's own pages.
+ * The palette is Crunchy+'s existing dark theme (the old base.css) expressed as shadcn variables; the app is dark-only.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './shadcn.css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: dark;
+  --radius: 0.625rem;
+  --background: #0b0c10;
+  --foreground: #eceef3;
+  --card: #14161c;
+  --card-foreground: #eceef3;
+  --popover: #1c1f27;
+  --popover-foreground: #eceef3;
+  /* Brand orange (Crunchyroll's) with the dark ink the old .btn.primary used on it. */
+  --primary: #ff7a1a;
+  --primary-foreground: #160b02;
+  --secondary: #1c1f27;
+  --secondary-foreground: #eceef3;
+  --muted: #1c1f27;
+  --muted-foreground: #9da1b0;
+  --accent: #232733;
+  --accent-foreground: #eceef3;
+  --destructive: #ff5470;
+  --destructive-foreground: #ffffff;
+  --success: #3ddc97;
+  --warning: #ffb454;
+  --border: rgb(255 255 255 / 0.08);
+  --input: rgb(255 255 255 / 0.1);
+  --ring: #ff7a1a;
+  --chart-1: #ff7a1a;
+  --chart-2: #ffd166;
+  --chart-3: #ef476f;
+  --chart-4: #06d6a0;
+  --chart-5: #8338ec;
+  --sidebar: #14161c;
+  --sidebar-foreground: #eceef3;
+  --sidebar-primary: #ff7a1a;
+  --sidebar-primary-foreground: #160b02;
+  --sidebar-accent: #232733;
+  --sidebar-accent-foreground: #eceef3;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: #ff7a1a;
+  /* Legacy names from the pre-shadcn base.css, for any custom CSS block that survives. */
+  --bg: var(--background);
+  --surface: var(--card);
+  --surface-2: var(--popover);
+  --line: var(--border);
+  --text: var(--foreground);
+  --ok: var(--success);
+  --err: var(--destructive);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground text-[13px] leading-[1.45] antialiased;
+  }
+  a {
+    @apply text-primary underline-offset-2 hover:underline;
+  }
+  /* The pre-Tailwind base.css had `button { cursor: pointer }`; Tailwind v4's preflight does not. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+}

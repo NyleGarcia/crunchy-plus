@@ -1,8 +1,10 @@
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-svelte'],
+  vite: () => ({ plugins: [tailwindcss()] }),
   manifest: ({ mode }) => ({
     // Dev/unpacked loads only: the public key pins the extension ID (mlfpneomdkdbknkiihofllhhecpdopcl)
     // so the AniList redirect URL https://mlfpneomdkdbknkiihofllhhecpdopcl.chromiumapp.org/ never changes.

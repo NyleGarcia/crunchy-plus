@@ -2,6 +2,18 @@
   import { crOp, type ExportPlan, type ExportResult } from '@/lib/messages';
   import { getSettings, lastExportItem, patchSettings, type Settings } from '@/lib/settings';
   import { STATUS_LABEL, type ListStatus } from '@/lib/types';
+  import Busy from '@/components/Busy.svelte';
+  import * as Card from '@/components/ui/card';
+  import * as Collapsible from '@/components/ui/collapsible';
+  import * as Table from '@/components/ui/table';
+  import { Badge } from '@/components/ui/badge';
+  import { Button } from '@/components/ui/button';
+  import { Checkbox } from '@/components/ui/checkbox';
+  import { Input } from '@/components/ui/input';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Minus from '@lucide/svelte/icons/minus';
+  import Plus from '@lucide/svelte/icons/plus';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
   const STATUSES = Object.keys(STATUS_LABEL) as ListStatus[];
 
@@ -110,302 +122,192 @@
     const m = Math.round((Date.now() - t) / 60e3);
     return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
   };
+
+  const H3 = 'text-muted-foreground mt-1 flex items-center gap-2 text-xs font-semibold tracking-[0.08em] uppercase';
+  const ROW = 'flex items-center gap-2';
+  const LIST = 'm-0 grid list-none gap-1 p-0';
 </script>
 
-<section class="pane">
-  <header class="head">
+{#snippet add(title: string, seriesId: string, crTitle: string | null | undefined)}
+  <li class="flex items-center gap-1.5">
+    <Plus class="text-success size-3.5 shrink-0" aria-hidden="true" /> {title}
+    <span class="text-muted-foreground">→ <a href="https://www.crunchyroll.com/series/{seriesId}" target="_blank" rel="noreferrer">{crTitle ?? 'Crunchyroll'}</a></span>
+  </li>
+{/snippet}
+
+<section class="grid gap-4">
+  <header class="flex flex-wrap items-start justify-between gap-4">
     <div>
-      <h2>Export to Crunchyroll</h2>
-      <p class="muted">
+      <h2 class="mb-1 text-2xl font-bold tracking-[-0.02em]">Export to Crunchyroll</h2>
+      <p class="text-muted-foreground m-0">
         Push your AniList list onto Crunchyroll's Watchlist and Crunchylists. Nothing changes until you preview and apply.
         {#if lastExport}Last export {ago(lastExport)}.{/if}
       </p>
     </div>
-    <button class="btn primary" disabled={loading || applying || !settings} onclick={preview}>
+    <Button disabled={loading || applying || !settings} onclick={preview}>
       {loading ? 'Planning…' : 'Preview'}
-    </button>
+    </Button>
   </header>
 
   {#if settings}
-    <div class="card settings">
-      <table>
-        <thead>
-          <tr>
-            <th></th>
-            <th>Add to Crunchyroll Watchlist</th>
-            <th>Mirror as Crunchylists “AniList · &lt;status&gt;”</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each STATUSES as st (st)}
-            <tr>
-              <td>{STATUS_LABEL[st]}</td>
-              <td>
-                <input
-                  type="checkbox"
-                  aria-label="Watchlist: {STATUS_LABEL[st]}"
-                  checked={settings.exportWatchlist.includes(st)}
-                  onchange={(e) => toggleStatus('exportWatchlist', st, e.currentTarget.checked)}
-                />
-              </td>
-              <td>
-                <input
-                  type="checkbox"
-                  aria-label="Crunchylist: {STATUS_LABEL[st]}"
-                  checked={settings.exportLists.includes(st)}
-                  onchange={(e) => toggleStatus('exportLists', st, e.currentTarget.checked)}
-                />
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-      <p class="note muted">The Watchlist is add-only — Crunchy+ never removes anything from it.</p>
+    <Card.Root size="sm" class="gap-2.5 shadow-none">
+      <Card.Content class="grid gap-2.5">
+        <Table.Root>
+          <Table.Header>
+            <Table.Row class="hover:bg-transparent">
+              <Table.Head></Table.Head>
+              <Table.Head class="text-muted-foreground h-auto pb-1.5 text-center text-xs whitespace-normal">Add to Crunchyroll Watchlist</Table.Head>
+              <Table.Head class="text-muted-foreground h-auto pb-1.5 text-center text-xs whitespace-normal">Mirror as Crunchylists “AniList · &lt;status&gt;”</Table.Head>
+            </Table.Row>
+          </Table.Header>
+          <Table.Body>
+            {#each STATUSES as st (st)}
+              <Table.Row class="hover:bg-transparent">
+                <Table.Cell class="py-1 font-semibold">{STATUS_LABEL[st]}</Table.Cell>
+                <Table.Cell class="py-1 text-center [&:has([role=checkbox])]:pr-2">
+                  <Checkbox
+                    class="mx-auto"
+                    aria-label="Watchlist: {STATUS_LABEL[st]}"
+                    checked={settings.exportWatchlist.includes(st)}
+                    onCheckedChange={(v) => toggleStatus('exportWatchlist', st, v)}
+                  />
+                </Table.Cell>
+                <Table.Cell class="py-1 text-center [&:has([role=checkbox])]:pr-2">
+                  <Checkbox
+                    class="mx-auto"
+                    aria-label="Crunchylist: {STATUS_LABEL[st]}"
+                    checked={settings.exportLists.includes(st)}
+                    onCheckedChange={(v) => toggleStatus('exportLists', st, v)}
+                  />
+                </Table.Cell>
+              </Table.Row>
+            {/each}
+          </Table.Body>
+        </Table.Root>
+        <p class="text-muted-foreground m-0 text-xs">The Watchlist is add-only — Crunchy+ never removes anything from it.</p>
 
-      <label class="row">
-        <input type="checkbox" checked={settings.mirrorLists} onchange={(e) => save({ mirrorLists: e.currentTarget.checked })} />
-        <span>
-          Mirror lists
-          <span class="muted">— remove shows that left the status (only touches lists Crunchy+ created)</span>
-        </span>
-      </label>
+        <label class={ROW}>
+          <Checkbox checked={settings.mirrorLists} onCheckedChange={(v) => save({ mirrorLists: v })} />
+          <span>
+            Mirror lists
+            <span class="text-muted-foreground">— remove shows that left the status (only touches lists Crunchy+ created)</span>
+          </span>
+        </label>
 
-      <div class="row">
-        <label class="row">
-          <input type="checkbox" checked={settings.autoExport} onchange={(e) => save({ autoExport: e.currentTarget.checked })} />
-          <span>Check for changes every</span>
-        </label>
-        <input
-          class="hours"
-          type="number"
-          min="1"
-          max="72"
-          value={settings.autoExportHours}
-          disabled={!settings.autoExport}
-          onchange={(e) => setHours(e.currentTarget.valueAsNumber)}
-        />
-        <span>hours</span>
-      </div>
-      {#if settings.autoExport}
-        <label class="row">
-          <input type="checkbox" checked={settings.autoApplyAdds} onchange={(e) => save({ autoApplyAdds: e.currentTarget.checked })} />
-          <span>Apply additions automatically</span>
-        </label>
-        <p class="note muted">
-          On your next Crunchyroll visit after {settings.autoExportHours} hours, Crunchy+ checks for changes.
-          {settings.autoApplyAdds
-            ? 'Additions are applied automatically, only after the page confirms which profile you are on. Removals always wait for your review.'
-            : 'You get a reminder with a preview; nothing is applied without your click.'}
-        </p>
-      {/if}
-    </div>
+        <div class={ROW}>
+          <label class={ROW}>
+            <Checkbox checked={settings.autoExport} onCheckedChange={(v) => save({ autoExport: v })} />
+            <span>Check for changes every</span>
+          </label>
+          <Input
+            class="h-7 w-16"
+            type="number"
+            min="1"
+            max="72"
+            aria-label="Hours between checks"
+            value={settings.autoExportHours}
+            disabled={!settings.autoExport}
+            onchange={(e) => setHours(e.currentTarget.valueAsNumber)}
+          />
+          <span>hours</span>
+        </div>
+        {#if settings.autoExport}
+          <label class={ROW}>
+            <Checkbox checked={settings.autoApplyAdds} onCheckedChange={(v) => save({ autoApplyAdds: v })} />
+            <span>Apply additions automatically</span>
+          </label>
+          <p class="text-muted-foreground m-0 text-xs">
+            On your next Crunchyroll visit after {settings.autoExportHours} hours, Crunchy+ checks for changes.
+            {settings.autoApplyAdds
+              ? 'Additions are applied automatically, only after the page confirms which profile you are on. Removals always wait for your review.'
+              : 'You get a reminder with a preview; nothing is applied without your click.'}
+          </p>
+        {/if}
+      </Card.Content>
+    </Card.Root>
   {/if}
 
-  {#if loading || applying}<p class="status"><span class="spin"></span>{label || (applying ? 'Updating Crunchyroll…' : 'Loading…')}</p>{/if}
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if loading || applying}<Busy {label} fallback={applying ? 'Updating Crunchyroll…' : 'Loading…'} />{/if}
+  {#if error}<p class="text-destructive m-0">{error}</p>{/if}
 
   {#if result}
-    <div class="card">
-      <p><b class="ok">{result.done} change{result.done === 1 ? '' : 's'} applied.</b>
-        {#if Array.isArray(result.failed) && result.failed.length}<span class="err">{result.failed.length} failed.</span>{/if}
-      </p>
-      {#if Array.isArray(result.failed) && result.failed.length}
-        <ul class="list">
-          {#each result.failed as f, i (i)}
-            <li><b>{f.what}</b> <span class="err">{f.error}</span></li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
+    <Card.Root size="sm" class="gap-2.5 shadow-none">
+      <Card.Content class="grid gap-2.5">
+        <p class="m-0">
+          <b class="text-success">{result.done} change{result.done === 1 ? '' : 's'} applied.</b>
+          {#if Array.isArray(result.failed) && result.failed.length}<span class="text-destructive">{result.failed.length} failed.</span>{/if}
+        </p>
+        {#if Array.isArray(result.failed) && result.failed.length}
+          <ul class={LIST}>
+            {#each result.failed as f, i (i)}
+              <li><b>{f.what}</b> <span class="text-destructive">{f.error}</span></li>
+            {/each}
+          </ul>
+        {/if}
+      </Card.Content>
+    </Card.Root>
   {/if}
 
   {#if plan}
     {#if Array.isArray(plan.warnings) && plan.warnings.length}
-      <ul class="warn">
-        {#each plan.warnings as w, i (i)}<li>{w}</li>{/each}
-      </ul>
+      <div class="border-primary/40 bg-primary/8 flex gap-2.5 rounded-[10px] border px-3.5 py-2.5" role="alert">
+        <TriangleAlert class="text-primary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <ul class="m-0 grid list-disc gap-1 pl-4">
+          {#each plan.warnings as w, i (i)}<li>{w}</li>{/each}
+        </ul>
+      </div>
     {/if}
 
-    <h3>Watchlist</h3>
+    <h3 class={H3}>Watchlist</h3>
     {#if Array.isArray(plan.watchlistAdd) && plan.watchlistAdd.length}
-      <ul class="list">
-        {#each plan.watchlistAdd as r (r.seriesId)}<li><span class="plus">+</span> {r.title} <span class="muted">→ <a href="https://www.crunchyroll.com/series/{r.seriesId}" target="_blank" rel="noreferrer">{r.crTitle ?? 'Crunchyroll'}</a></span></li>{/each}
+      <ul class={LIST}>
+        {#each plan.watchlistAdd as r (r.seriesId)}{@render add(r.title, r.seriesId, r.crTitle)}{/each}
       </ul>
     {:else}
-      <p class="muted">Nothing to add.</p>
+      <p class="text-muted-foreground m-0">Nothing to add.</p>
     {/if}
 
     {#if Array.isArray(plan.lists)}
       {#each plan.lists as l (l.status)}
-        <h3>
+        <h3 class={H3}>
           {l.title}
-          <em class="tag">{l.listId ? 'existing' : 'new'}</em>
+          <Badge variant="outline" class="bg-popover h-[18px] px-[7px] text-[11px] font-normal tracking-normal normal-case">{l.listId ? 'existing' : 'new'}</Badge>
         </h3>
         {#if !(l.add?.length || l.remove?.length || l.overflow)}
-          <p class="muted">Up to date.</p>
+          <p class="text-muted-foreground m-0">Up to date.</p>
         {:else}
-          <ul class="list">
-            {#each Array.isArray(l.add) ? l.add : [] as r (r.seriesId)}<li><span class="plus">+</span> {r.title} <span class="muted">→ <a href="https://www.crunchyroll.com/series/{r.seriesId}" target="_blank" rel="noreferrer">{r.crTitle ?? 'Crunchyroll'}</a></span></li>{/each}
-            {#each Array.isArray(l.remove) ? l.remove : [] as r (r.entryId)}<li><span class="minus">−</span> {r.title}</li>{/each}
+          <ul class={LIST}>
+            {#each Array.isArray(l.add) ? l.add : [] as r (r.seriesId)}{@render add(r.title, r.seriesId, r.crTitle)}{/each}
+            {#each Array.isArray(l.remove) ? l.remove : [] as r (r.entryId)}
+              <li class="flex items-center gap-1.5"><Minus class="text-destructive size-3.5 shrink-0" aria-hidden="true" /> {r.title}</li>
+            {/each}
           </ul>
-          {#if l.overflow}<p class="muted">{l.overflow} more didn't fit under the list cap.</p>{/if}
+          {#if l.overflow}<p class="text-muted-foreground m-0">{l.overflow} more didn't fit under the list cap.</p>{/if}
         {/if}
       {/each}
     {/if}
 
     {#if Array.isArray(plan.unmapped) && plan.unmapped.length}
-      <details>
-        <summary class="muted">{plan.unmapped.length} show{plan.unmapped.length === 1 ? '' : 's'} not found on Crunchyroll</summary>
-        <ul class="list">
-          {#each plan.unmapped as u (u.aniId)}
-            <li><a href="https://anilist.co/anime/{u.aniId}" target="_blank" rel="noreferrer">{u.title}</a></li>
-          {/each}
-        </ul>
-      </details>
+      <Collapsible.Root class="grid gap-2">
+        <Collapsible.Trigger class="text-muted-foreground hover:text-foreground group flex w-fit items-center gap-1 text-left">
+          <ChevronRight class="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden="true" />
+          {plan.unmapped.length} show{plan.unmapped.length === 1 ? '' : 's'} not found on Crunchyroll
+        </Collapsible.Trigger>
+        <Collapsible.Content>
+          <ul class={LIST}>
+            {#each plan.unmapped as u (u.aniId)}
+              <li><a href="https://anilist.co/anime/{u.aniId}" target="_blank" rel="noreferrer">{u.title}</a></li>
+            {/each}
+          </ul>
+        </Collapsible.Content>
+      </Collapsible.Root>
     {/if}
 
-    <div class="actions">
-      <button class="btn primary" disabled={!changes || applying} onclick={apply}>
+    <div class="flex gap-2">
+      <Button disabled={!changes || applying} onclick={apply}>
         {applying ? 'Applying…' : `Apply ${changes} change${changes === 1 ? '' : 's'}`}
-      </button>
-      <button class="btn" disabled={applying} onclick={() => (plan = null)}>Discard</button>
+      </Button>
+      <Button variant="outline" disabled={applying} onclick={() => (plan = null)}>Discard</Button>
     </div>
   {/if}
 </section>
-
-<style>
-  .pane {
-    display: grid;
-    gap: 16px;
-  }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  h2 {
-    margin: 0 0 4px;
-    font-size: 24px;
-    letter-spacing: -0.02em;
-  }
-  h3 {
-    margin: 4px 0 0;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  p {
-    margin: 0;
-  }
-  .card {
-    padding: 14px;
-    border-radius: 14px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    display: grid;
-    gap: 10px;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
-  }
-  th {
-    font-weight: 600;
-    font-size: 12px;
-    color: var(--muted);
-    text-align: center;
-    padding: 0 8px 6px;
-  }
-  td {
-    padding: 4px 8px;
-    border-top: 1px solid var(--line);
-    text-align: center;
-  }
-  td:first-child {
-    text-align: left;
-    font-weight: 600;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .hours {
-    width: 64px;
-  }
-  .note {
-    font-size: 12px;
-  }
-  .tag {
-    font-style: normal;
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 11px;
-    padding: 1px 7px;
-    border-radius: 99px;
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-  }
-  .list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: grid;
-    gap: 3px;
-  }
-  .plus {
-    color: var(--ok);
-    font-weight: 700;
-  }
-  .minus {
-    color: var(--err);
-    font-weight: 700;
-  }
-  .ok {
-    color: var(--ok);
-  }
-  .err {
-    color: var(--err);
-  }
-  .warn {
-    margin: 0;
-    padding: 10px 14px 10px 28px;
-    border-radius: 10px;
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-  details summary {
-    cursor: pointer;
-  }
-  details .list {
-    margin-top: 8px;
-  }
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-  .status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--muted);
-  }
-  .spin {
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--line);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-</style>
