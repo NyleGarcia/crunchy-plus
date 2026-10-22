@@ -1,0 +1,84 @@
+# Release: release-please opens the release PR; on merge, attach the Chrome, Edge, Brave and Firefox zips (+ Firefox sources zip),
+# then submit the Chrome zip to the Chrome Web Store as the publisher service account (API v2, Workload Identity
+# Federation; skipped until the GCP_* variables / CHROME_* secrets exist — docs/release.md). Mainline releases only.
+name: Release
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
+
+  assets:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [chrome, edge, brave, firefox]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx wxt zip -b ${{ matrix.target }}
+      - run: gh release upload "$TAG" .output/*.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+
+  publish:
+    needs: [release-please, assets]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: chrome-web-store
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation: GitHub's OIDC token → short-lived Google access token, no key
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx wxt zip -b chrome
+      - name: Google access token for the publisher service account
+        id: gcp
+        if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+      - name: Submit to the Chrome Web Store (API v2)
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_SERVICE_ACCOUNT_ACCESS_TOKEN: ${{ steps.gcp.outputs.access_token }}
+        run: |
+          if [ -z "$CHROME_SERVICE_ACCOUNT_ACCESS_TOKEN" ] || [ -z "$CHROME_PUBLISHER_ID" ] || [ -z "$CHROME_EXTENSION_ID" ]; then
+            echo "::warning::Web Store publishing not configured (GCP_* variables / CHROME_* secrets) — zip attached to the release, nothing submitted (docs/release.md)"
+            exit 0
+          fi
+          npx wxt submit --chrome-api-version v2 --chrome-zip .output/*-chrome.zip
