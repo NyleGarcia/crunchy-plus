@@ -1,7 +1,7 @@
 ---
 title: Architecture
 tags: [architecture]
-updated: 2026-10-08
+updated: 2026-10-15
 ---
 # Architecture
 
@@ -10,8 +10,8 @@ updated: 2026-10-08
 | Hook | `src/entrypoints/cr-hook.content.ts` | MAIN, document_start | Wraps `fetch` + XHR: captures CR bearer token, rewrites `/content/v2/*` list JSON per mode, forwards `/cms/objects` episode meta |
 | CR content script | `src/entrypoints/crunchyroll.content/` | isolated, all frames | Settings → hook bridge (localStorage `crunchyplus:config` + postMessage), player tracker, audio-version redirect, Svelte widget (shadow root), theme CSS, scraper |
 | Background | `src/entrypoints/background.ts` | SW | AniList OAuth (implicit, `identity.launchWebAuthFlow`), GraphQL (serialized, 2.1 s gap, 429 retry), match cache, sync, scrape relay |
-| Popup | `src/entrypoints/popup/` | ext page | Mode, dub lang, AniList connect, threshold, theme |
-| Import | `src/entrypoints/import/` | ext page | CR history+watchlist → per-season rows → match → diff vs AniList list → apply |
+| Popup | `src/entrypoints/popup/` | ext page | Mode, dub lang, AniList connect, threshold, theme, declutter; shadcn-svelte UI |
+| Hub | `src/entrypoints/hub/` | ext page | Tabs: Up next (`UpNext.svelte`), Import (`ImportPanel.svelte` + `UndoPanel.svelte`), Export (`ExportPanel.svelte`); deep links `hub.html#upnext|import|export`; shadcn-svelte UI |
 
 ## Key rules
 - **Dub classification** (`src/lib/dub.ts`): `versions[].original` for the item's own guid → else `audio_locale` ∈ {ja-JP, zh-CN, zh-TW, ko-KR} → else title `(… Dub)`. Unclassifiable items (series) always kept.
@@ -83,8 +83,25 @@ updated: 2026-10-08
 - Badges: bottom-left of the poster/thumbnail (CR uses top-left for Sub/Dub tags, top-right for the watchlist mark). Episode cards resolve their series via `a[data-t="series-title"]`.
 - **Pills**: "Watching 5 of 8 out (12)" = AniList progress of the original-audio episodes out on CR (AniList season total in brackets, "(?)" while unknown; "Watching 5/12" until the CR check returns). Colour for Watching/Rewatching: green = behind, teal = caught up & airing (tooltip: next airing from AniList), yellow = caught up & season finished (mark Completed?) for that entry's season (`seriesSeasons`: original seasons with released numbered-episode counts, dubs/specials excluded, cached 6 h in `local:crSeasons`; `seasonOf`: exact import match → title season number → last). Best entry per series = most actionable status, ties → latest season. An orange pill marks unwatched content only: "N to watch" (aired > progress, any status but Planning) or, for completed shows, "New season" (a later original CR season than any of your entries). Episode cards never get the extra pill; on series pages episode cards get nothing.
 - **Card mapping fallback**: cards with no known mapping are matched offline by exact `baseTitle` (season/part markers stripped) against the user's AniList titles; matches are persisted to `local:crSeries` (never overwriting link/import/search mappings).
-- **Hide completed** (`hideCompleted`): hidden when every mapped AniList entry is COMPLETED, unless the same check finds "N new" or "New season". Check failed/unknown → shown.
+- **Hide completed** (`hideCompleted`): hidden when every mapped AniList entry is COMPLETED, unless the same check finds "N new" or "New season". Check failed/unknown → shown. What gets hidden is the card's slot (`slotOf`: carousel / continue-watching wrapper, else single-child wrappers up to the grid item, e.g. `.erc-my-lists-item`). My Lists (history, watchlist) virtualises rows (`*-virtual-list-row`: absolutely positioned, 4 fixed cells) so cards can't reflow there — those are **dimmed** (`data-crunchyplus-hidden="dimmed"`, hover restores) instead of removed.
+- **+ Plan** (with `badges`): cards whose series has no AniList entry get a "+ Plan" button bottom-left. Click → background `anilist:plan` searches AniList by the card title, `pickPlanMedia` takes a full-title match, else a base-title match (TV first, earliest year), never guesses; the media is saved as PLANNING (or, if already on the list, left alone and reported), the CR series id is learned into `local:crSeries`, and the button becomes the status pill.
 - **Up next row**: shadow-root UI auto-mounted as first child of `.erc-feed`; data = `upNext()` cached 15 min (`local:upNextCache`).
 - Series and watch pages: selectors not yet verified (need a saved logged-in page).
 - **Hidden rows** (`rows.ts`, setting `hiddenRows`): rows hidden by heading text (case-insensitive substring), since row numbers change per visit. Row root = `[data-t^="personalized-collection-"]`, else the direct child of `.dynamic-feed-wrapper`. Each heading gets a hover "Hide row" button (Undo toast); popup lists hidden rows with Show, presets (`ROW_PRESETS`), and free-text patterns.
 - **Telemetry stub** (cr-hook): fetch/XHR/sendBeacon to Datadog RUM, Braze, Segment (`isTelemetry`) get an empty local 204/`data:` response — nothing sent, no blocked-request spam. Video/account/CR API hosts never match.
+
+## Versioning & releases
+- Conventional commits drive semver while 0.x: `feat:` → minor, `fix:` / `perf:` → patch, `feat!:` / `BREAKING CHANGE` → minor (`bump-minor-pre-major: true`). Other types (`docs:`, `ci:`, `chore:`) don't bump.
+- `release.yml`: release-please (`release-please-config.json`, `.release-please-manifest.json`, pinned to `target-branch: main`) opens/updates a `chore(main): release X.Y.Z` PR that bumps `package.json` (the manifest version WXT emits) and the root `CHANGELOG.md` (generated; `docs/changelog.md` stays the hand-written vault note). Merging it tags `vX.Y.Z`, creates the GitHub release, and the `assets` matrix attaches `crunchy-plus-X.Y.Z-{chrome,edge,brave,firefox}.zip` plus `-sources.zip` (AMO source bundle; `zip.excludeSources` drops `store/`, `docs/`, `.claude/`, `.agents/`).
+- `ci.yml` (push to `main` / `dev`, PRs): `verify` (check + test), then a `zip` matrix over the four targets uploaded as 14-day artifacts.
+- `prerelease.yml` (push to `dev`): `scripts/next-prerelease.sh` computes `<next>-dev<run:04>` (base from the release-please manifest, bump from conventional commits since the last stable `v*` tag), sets it in `package.json` in CI only, zips all four targets and publishes GitHub prerelease `v<next>-dev<run:04>` (`--prerelease --latest=false`), keeping the newest 10. Zero padding keeps GitHub's text sort in order.
+- Local builds (`wxt.config.ts` → `localVersionName`; not in CI, not on the tagged release commit) set Chromium `version_name` `<next>-dev (local <sha>[+])` (`+` = uncommitted changes), so a reloaded unpacked build shows it is newer than the last release.
+- Browser targets: `wxt zip -b chrome|edge|brave|firefox`. Edge and Brave are the Chromium MV3 build under their own name. The manifest `key` (pinned ID for the AniList redirect) only goes into non-production Chromium builds. Firefox builds MV2 with `browser_specific_settings.gecko` (id `crunchy-plus@nylegarcia.github.io`, `strict_min_version` 128 for the manifest `world: MAIN` cr-hook, `data_collection_permissions: none`). Not yet verified in a real Firefox; AniList OAuth there needs Firefox's own redirect URL registered with the AniList client, otherwise use the PIN fallback.
+- `dev` branch: not created yet. Until it exists `prerelease.yml` never fires; create it (and optionally make it the default branch) to switch to the RSI+ flow where day-to-day work lands on `dev` and `dev` → `main` PRs cut releases.
+
+## Hub styling (hub + popup)
+- **shadcn-svelte + Tailwind v4** (spec: `plans/specs/shadcn-migration.md`). `src/app.css` = Tailwind + `tw-animate-css` + `src/shadcn.css` (the CLI's variant layer, copied) + the dark-only token palette (brand `--primary #ff7a1a`, `--success`, `--warning`, legacy `--bg`/`--surface`/`--line`/`--text`/`--ok`/`--err` aliases). Imported **only** by `entrypoints/hub/main.ts` and `entrypoints/popup/main.ts`; Vite emits it in the shared `assets/plus-*.css` chunk.
+- Copy-in components live in `src/components/ui/` (`npx shadcn-svelte@latest add -y --skip-preflight --no-deps-install <name>`, then `npm install`; never run `init`, it hangs without a TTY). `components.json` aliases `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils` (`cn`).
+- Shared pieces: `Segmented.svelte` (ToggleGroup radio with sliding pill, `count` / `grow` options), `Hint.svelte` (Tooltip in place of `title=`, non-focusable trigger), `Busy.svelte` (spinner + progress label). One `Tooltip.Provider` per page root.
+- **Content scripts stay vanilla.** `crunchyroll.content/theme.css`, `badges.ts`, and the shadow-root Svelte components `Widget.svelte` / `UpNextRow.svelte` keep scoped hand-written CSS so nothing of Tailwind reaches crunchyroll.com (and bits-ui portals would escape the shadow root).
+- bits-ui gotchas: `Select` treats `''` as empty (use a sentinel; numbers go through `String()`); `Tabs.Content` keeps panes mounted (wrap in `{#if}`); clicking a ToggleGroup's active item sends `''` (ignored by `Segmented`); `Collapsible` renders divs, so it cannot wrap `<tr>`.

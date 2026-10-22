@@ -157,7 +157,17 @@
   display: none !important;
 }
 
-/* Hidden by "hide completed" (badges.ts) */
-[data-crunchyplus-hidden] {
+/* Hidden by "hide completed" (badges.ts). Inside My Lists' virtualised rows (absolutely positioned,
+   4 fixed cells) removing a card leaves a hole, so those are dimmed instead. */
+[data-crunchyplus-hidden]:not([data-crunchyplus-hidden='dimmed']) {
   display: none !important;
+}
+[data-crunchyplus-hidden='dimmed'] {
+  opacity: 0.28;
+  filter: grayscale(0.8);
+  transition: opacity 150ms ease, filter 150ms ease;
+}
+[data-crunchyplus-hidden='dimmed']:hover {
+  opacity: 1;
+  filter: none;
 }

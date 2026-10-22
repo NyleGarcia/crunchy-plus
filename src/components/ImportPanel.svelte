@@ -6,6 +6,20 @@
   import { bg, crOp, type MatchResult, type Ranked, type ScrapedSeason } from '@/lib/messages';
   import { importLogItem, lastScanItem, type ScanSnapshot } from '@/lib/settings';
   import type { AniEntry, AniMedia, ListStatus } from '@/lib/types';
+  import Segmented from '@/components/Segmented.svelte';
+  import Hint from '@/components/Hint.svelte';
+  import Busy from '@/components/Busy.svelte';
+  import * as Card from '@/components/ui/card';
+  import * as Command from '@/components/ui/command';
+  import * as Select from '@/components/ui/select';
+  import * as Table from '@/components/ui/table';
+  import { Badge } from '@/components/ui/badge';
+  import { Button } from '@/components/ui/button';
+  import { Checkbox } from '@/components/ui/checkbox';
+  import { Input } from '@/components/ui/input';
+  import { cn } from '@/lib/utils';
+  import ArrowDown from '@lucide/svelte/icons/arrow-down';
+  import Check from '@lucide/svelte/icons/check';
 
   type Phase = 'idle' | 'profile' | 'confirm' | 'scraping' | 'matching' | 'review' | 'applying' | 'done';
   interface Row {
@@ -499,118 +513,159 @@
   const title = (m: AniMedia) => m.title.english ?? m.title.romaji ?? `#${m.id}`;
   const fmt = (s: ListStatus | undefined) => (s ? s[0] + s.slice(1).toLowerCase() : '—');
   const STATUSES: ListStatus[] = ['CURRENT', 'PAUSED', 'DROPPED'];
+
+  const SORTS: { id: Sort; label: string }[] = [
+    { id: 'recent', label: 'Recently played' },
+    { id: 'pctDesc', label: 'Match % high → low' },
+    { id: 'pctAsc', label: 'Match % low → high' },
+    { id: 'title', label: 'Title' },
+  ];
+  const FILTER_LABEL: Record<Filter, string> = { all: 'All', matched: 'Matched', unmatched: 'Unmatched', skipped: 'Skipped', failed: 'Failed', review: 'Needs review', changed: 'Changed' };
+  const filterOptions = $derived(
+    (['all', 'matched', 'unmatched', ...(counts.skipped ? ['skipped' as const] : []), ...(counts.failed ? ['failed' as const] : []), 'review', ...(baseline ? ['changed' as const] : [])] as Filter[]).map(
+      (id) => ({ id, label: FILTER_LABEL[id], count: counts[id] }),
+    ),
+  );
+  /** Score pill colours: good ≥ auto-accept, mid ≥ 0.7, low below; saved = grey; jev = violet. */
+  const PCT = 'h-[18px] px-[7px] text-[11px] font-bold tabular-nums';
+  const pctClass = (t: 'good' | 'mid' | 'low' | 'saved' | 'jev' | 'jevTop') =>
+    cn(
+      PCT,
+      t === 'good' && 'bg-success/15 text-success',
+      t === 'mid' && 'bg-warning/15 text-warning',
+      t === 'low' && 'bg-white/6 text-destructive',
+      t === 'saved' && 'bg-white/6 text-muted-foreground',
+      t === 'jev' && 'bg-[#a78bfa]/12 text-[#a78bfa]',
+      t === 'jevTop' && 'bg-[#a78bfa]/25 text-[#a78bfa]',
+    );
+  const LINK = 'h-auto p-0 text-xs font-normal';
+  const MUTED = 'text-muted-foreground';
+  const SMALL = 'text-muted-foreground block text-xs';
 </script>
 
-<section class="pane">
+<section class="grid gap-[18px]">
   <header>
-    <h2>Crunchyroll <span>→ AniList</span></h2>
-    <p class="muted">
+    <h2 class="mb-1.5 text-2xl font-bold tracking-[-0.02em]">Crunchyroll <span class="text-primary">→ AniList</span></h2>
+    <p class="text-muted-foreground m-0 max-w-[70ch]">
       Reads your Crunchyroll watch history and watchlist (from an open, logged-in Crunchyroll tab), matches each season on
       AniList, and shows exactly what would change. Nothing is written until you press Apply. Progress never goes
       backwards and completed entries are never downgraded.
     </p>
   </header>
 
-  <section class="rules">
-    <label>Played in last <input type="number" min="1" max="365" bind:value={recentDays} onchange={replanAll} /> days → <b>Watching</b></label>
-    <label>
-      Older, unfinished →
-      <select bind:value={idleStatus} onchange={replanAll}>{#each STATUSES as s}<option value={s}>{fmt(s)}</option>{/each}</select>
-    </label>
-    <label><input type="checkbox" bind:checked={onlyChanges} /> Only show changes</label>
-    <label title="Shows on your Crunchyroll watchlist that you haven't watched become Planning on AniList">
-      <input type="checkbox" bind:checked={includeWatchlist} onchange={replanAll} /> Include watchlist (→ Planning)
-    </label>
-    {#if phase === 'idle' || phase === 'done'}
-      {#if hasSnapshot}
-        <span class="replay">
-          <button class="btn" onclick={() => replay(replayFresh)} title="Re-run matching on the last scan's Crunchyroll data — no Crunchyroll requests">Replay last scan</button>
-          <label title="Search AniList again for every row instead of using saved matches; nothing is saved"><input type="checkbox" bind:checked={replayFresh} /> ignore saved matches</label>
-        </span>
+  <Card.Root size="sm" class="shadow-none">
+    <Card.Content class="flex flex-wrap items-center gap-x-[22px] gap-y-3.5">
+      <label class="flex items-center gap-1.5">
+        Played in last <Input type="number" class="h-7 w-16" min="1" max="365" bind:value={recentDays} onchange={replanAll} /> days → <b>Watching</b>
+      </label>
+      <span class="flex items-center gap-1.5">
+        <span id="idle-status-label">Older, unfinished →</span>
+        <Select.Root type="single" bind:value={() => idleStatus, (v) => ((idleStatus = v as ListStatus), replanAll())}>
+          <Select.Trigger size="sm" aria-labelledby="idle-status-label">{fmt(idleStatus)}</Select.Trigger>
+          <Select.Content>
+            {#each STATUSES as s (s)}<Select.Item value={s} label={fmt(s)} />{/each}
+          </Select.Content>
+        </Select.Root>
+      </span>
+      <label class="flex items-center gap-1.5"><Checkbox bind:checked={onlyChanges} /> Only show changes</label>
+      <Hint text="Shows on your Crunchyroll watchlist that you haven't watched become Planning on AniList">
+        <label class="flex items-center gap-1.5">
+          <Checkbox bind:checked={includeWatchlist} onCheckedChange={replanAll} /> Include watchlist (→ Planning)
+        </label>
+      </Hint>
+      {#if phase === 'idle' || phase === 'done'}
+        {#if hasSnapshot}
+          <span class="inline-flex items-center gap-2">
+            <Hint text="Re-run matching on the last scan's Crunchyroll data — no Crunchyroll requests">
+              <Button variant="outline" onclick={() => replay(replayFresh)}>Replay last scan</Button>
+            </Hint>
+            <Hint text="Search AniList again for every row instead of using saved matches; nothing is saved">
+              <label class="flex items-center gap-1.5"><Checkbox bind:checked={replayFresh} /> ignore saved matches</label>
+            </Hint>
+          </span>
+        {/if}
       {/if}
-    {/if}
-    {#if phase === 'idle'}
-      <button class="btn primary" onclick={checkProfile}>Scan Crunchyroll</button>
-    {:else if phase === 'review'}
-      <button class="btn primary" disabled={!selectedCount} onclick={apply}>Apply {selectedCount} updates</button>
-    {:else if phase === 'done'}
-      <button class="btn" onclick={checkProfile}>Rescan</button>
-    {/if}
-  </section>
+      {#if phase === 'idle'}
+        <Button class="ml-auto" onclick={checkProfile}>Scan Crunchyroll</Button>
+      {:else if phase === 'review'}
+        <Button class="ml-auto" disabled={!selectedCount} onclick={apply}>Apply {selectedCount} updates</Button>
+      {:else if phase === 'done'}
+        <Button variant="outline" class="ml-auto" onclick={checkProfile}>Rescan</Button>
+      {/if}
+    </Card.Content>
+  </Card.Root>
 
   {#if phase === 'confirm' && profile}
-    <div class="confirm">
-      <p>
-        Read watch history from Crunchyroll profile
-        <b>{profile.name ?? 'unknown name'}</b>{profile.profiles > 1 ? ` (one of ${profile.profiles} profiles on this account)` : ''}?
-      </p>
-      <p class="muted">
-        Wrong profile? Switch profiles on crunchyroll.com, reload that tab, then scan again.
-        <small>(id …{profile.id.slice(-6)}, from {profile.source})</small>
-      </p>
-      {#if profile.source === 'account'}
-        <p class="err">
-          Couldn't confirm which profile you're on — scanning now could read another profile's history.
-          In the Crunchyroll tab, open <b>crunchyroll.com/history</b> on your profile, let it load, then press Retry.
+    <Card.Root size="sm" class="ring-primary gap-2 shadow-none">
+      <Card.Content class="grid gap-2">
+        <p class="m-0">
+          Read watch history from Crunchyroll profile
+          <b>{profile.name ?? 'unknown name'}</b>{profile.profiles > 1 ? ` (one of ${profile.profiles} profiles on this account)` : ''}?
         </p>
-        <div class="row">
-          <button class="btn primary" onclick={checkProfile}>Retry</button>
-          <button class="btn" onclick={() => (phase = 'idle')}>Cancel</button>
-        </div>
-      {:else}
-        <div class="row">
-          <button class="btn primary" onclick={start}>Yes, scan this profile</button>
-          <button class="btn" onclick={() => (phase = 'idle')}>Cancel</button>
-          <label title="Normally only history newer than the last scan is read and already-resolved seasons are reused"><input type="checkbox" bind:checked={fullScan} /> full rescan (ignore cache)</label>
-        </div>
-      {/if}
-    </div>
+        <p class="text-muted-foreground m-0">
+          Wrong profile? Switch profiles on crunchyroll.com, reload that tab, then scan again.
+          <small>(id …{profile.id.slice(-6)}, from {profile.source})</small>
+        </p>
+        {#if profile.source === 'account'}
+          <p class="text-destructive m-0">
+            Couldn't confirm which profile you're on — scanning now could read another profile's history.
+            In the Crunchyroll tab, open <b>crunchyroll.com/history</b> on your profile, let it load, then press Retry.
+          </p>
+          <div class="flex gap-2">
+            <Button onclick={checkProfile}>Retry</Button>
+            <Button variant="outline" onclick={() => (phase = 'idle')}>Cancel</Button>
+          </div>
+        {:else}
+          <div class="flex flex-wrap items-center gap-2">
+            <Button onclick={start}>Yes, scan this profile</Button>
+            <Button variant="outline" onclick={() => (phase = 'idle')}>Cancel</Button>
+            <Hint text="Normally only history newer than the last scan is read and already-resolved seasons are reused">
+              <label class="flex items-center gap-1.5"><Checkbox bind:checked={fullScan} /> full rescan (ignore cache)</label>
+            </Hint>
+          </div>
+        {/if}
+      </Card.Content>
+    </Card.Root>
   {/if}
 
   {#if phase === 'profile' || phase === 'scraping' || phase === 'matching' || phase === 'applying'}
-    <p class="status"><span class="spin"></span>{label}</p>
+    <Busy {label} />
   {/if}
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if error}<p class="text-destructive m-0">{error}</p>{/if}
 
   {#if rows.length}
-    <p class="muted">
+    <p class="text-muted-foreground m-0">
       {stats.history} history items{stats.historyNew < stats.history ? ` (${stats.historyNew} new)` : ''} · {stats.watchlist} watchlist · {rows.length} seasons
-      {#if unmatched}· <b class="warn">{unmatched} need a match</b>{/if}
+      {#if unmatched}· <b class="text-primary">{unmatched} need a match</b>{/if}
     </p>
     {#if baseline}
-      <p class="muted diffsum">
+      <p class="text-muted-foreground m-0">
         {replayMode === 'fresh' ? 'Re-matched from scratch' : replayMode === 'saved' ? 'Replayed' : 'Compared'} against the scan from
         {new Date(baseline.at).toLocaleString()}:
         <b>{rows.filter((r) => diffOf(r) === 'same').length}</b> same ·
-        <b class="warn">{rows.filter((r) => diffOf(r) === 'match').length}</b> match changed ·
-        <b class="warn">{rows.filter((r) => diffOf(r) === 'plan').length}</b> plan changed ·
+        <b class="text-primary">{rows.filter((r) => diffOf(r) === 'match').length}</b> match changed ·
+        <b class="text-primary">{rows.filter((r) => diffOf(r) === 'plan').length}</b> plan changed ·
         {rows.filter((r) => diffOf(r) === 'new').length} new
       </p>
     {/if}
-    <div class="toolbar">
-      <div class="seg" role="radiogroup" aria-label="Filter">
-        {#each [['all', 'All'], ['matched', 'Matched'], ['unmatched', 'Unmatched'], ...(counts.skipped ? [['skipped', 'Skipped']] : []), ...(counts.failed ? [['failed', 'Failed']] : []), ['review', 'Needs review'], ...(baseline ? [['changed', 'Changed']] : [])] as [id, name]}
-          <button role="radio" aria-checked={filter === id} class:on={filter === id} onclick={() => (filter = id as Filter)}>
-            {name} <small>{counts[id as Filter]}</small>
-          </button>
-        {/each}
-      </div>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <Segmented options={filterOptions} bind:value={filter} ariaLabel="Filter" size="sm" />
       {#if counts.failed && phase === 'review'}
-        <button class="btn" onclick={retryFailed} title="Matching failed for these rows (e.g. AniList rate limit) — try them again">
-          Retry {counts.failed} failed
-        </button>
+        <Hint text="Matching failed for these rows (e.g. AniList rate limit) — try them again">
+          <Button variant="outline" onclick={retryFailed}>Retry {counts.failed} failed</Button>
+        </Hint>
       {/if}
-      <label>
-        Sort
-        <select bind:value={sort}>
-          <option value="recent">Recently played</option>
-          <option value="pctDesc">Match % high → low</option>
-          <option value="pctAsc">Match % low → high</option>
-          <option value="title">Title</option>
-        </select>
-      </label>
+      <span class="flex items-center gap-1.5">
+        <span id="sort-label">Sort</span>
+        <Select.Root type="single" bind:value={() => sort, (v) => (sort = v as Sort)}>
+          <Select.Trigger size="sm" aria-labelledby="sort-label">{SORTS.find((s) => s.id === sort)?.label}</Select.Trigger>
+          <Select.Content>
+            {#each SORTS as s (s.id)}<Select.Item value={s.id} label={s.label} />{/each}
+          </Select.Content>
+        </Select.Root>
+      </span>
     </div>
-    <table>
+    <Table.Root class="table-fixed">
       <colgroup>
         <col style="width: 36px" />
         <col style="width: 32%" />
@@ -618,59 +673,89 @@
         <col style="width: 14%" />
         <col />
       </colgroup>
-      <thead>
-        <tr><th></th><th>Crunchyroll</th><th>AniList match</th><th>Now</th><th>After</th></tr>
-      </thead>
-      <tbody>
+      <Table.Header>
+        <Table.Row class="hover:bg-transparent">
+          <Table.Head class={MUTED}></Table.Head>
+          <Table.Head class="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">Crunchyroll</Table.Head>
+          <Table.Head class="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">AniList match</Table.Head>
+          <Table.Head class="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase max-md:hidden">Now</Table.Head>
+          <Table.Head class="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">After</Table.Head>
+        </Table.Row>
+      </Table.Header>
+      <Table.Body>
         {#each shown as r (r.season.key)}
-          <tr class:off={!r.selected}>
-            <td><input type="checkbox" bind:checked={r.selected} disabled={!r.plan || phase !== 'review'} /></td>
-            <td>
+          <Table.Row class={cn('align-middle [&>td]:px-2 [&>td]:py-2.5 [&>td]:whitespace-normal [&>td]:[overflow-wrap:anywhere]', !r.selected && '[&>td]:opacity-60')}>
+            <Table.Cell><Checkbox bind:checked={r.selected} disabled={!r.plan || phase !== 'review'} aria-label="Apply {r.season.input.seriesTitle}" /></Table.Cell>
+            <Table.Cell>
               <b>{r.season.input.seriesTitle}</b>
-              <span class="season">{seasonLabel(r.season.input)}</span>
-              {#if diffOf(r) === 'match'}<span class="diff warn">match changed</span>
-              {:else if diffOf(r) === 'plan'}<span class="diff warn">plan changed</span>
-              {:else if diffOf(r) === 'new'}<span class="diff">new</span>{/if}
-              <small>
+              <span class="block opacity-85">{seasonLabel(r.season.input)}</span>
+              {#if diffOf(r) === 'match'}<span class="text-primary mt-0.5 inline-block text-[11px]">match changed</span>
+              {:else if diffOf(r) === 'plan'}<span class="text-primary mt-0.5 inline-block text-[11px]">plan changed</span>
+              {:else if diffOf(r) === 'new'}<span class="mt-0.5 inline-block text-[11px]">new</span>{/if}
+              <small class={SMALL}>
                 ep {r.season.progress}{r.season.input.seasonEpisodes ? ` · ${r.season.input.seasonEpisodes} on CR` : ''}
                 · watched {r.season.watchedCount}{r.season.furthest > r.season.progress ? ` (furthest ep ${r.season.furthest})` : ''}
                 {r.season.inWatchlist ? '· watchlist' : ''}
                 {r.season.lastPlayed ? `· ${new Date(r.season.lastPlayed).toLocaleDateString()}` : ''}
               </small>
-            </td>
-            <td>
+            </Table.Cell>
+            <Table.Cell>
               {#if r.picking && r.match}
-                <div class="picker">
-                  {#if r.loadingCands}<span class="muted">Searching…</span>{/if}
-                  {#each r.match.candidates as c (c.media.id)}
-                    <button class="cand" class:current={c.media.id === r.match.mediaId} onclick={() => pick(r, c)}>
-                      {#if c.media.coverImage.medium}<img src={c.media.coverImage.medium} alt="" />{/if}
-                      <span class="ct">
-                        <b>{title(c.media)}</b>
-                        <small>{c.media.format ?? '?'} · {c.media.seasonYear ?? '?'} · {c.media.episodes ?? '?'} eps</small>
-                      </span>
-                      <span class="pct {tone(c.score)}" title="Title/season/episode score">{pct(c.score)}%</span>
-                      {#if r.match.jev}
-                        <span class="pct jev" class:top={r.match.jev.choice === c.media.id} title="Jev's probability">Jev {jevPct(r, c.media.id)}%</span>
-                      {/if}
-                    </button>
-                  {/each}
-                  {#if r.match.jev && r.match.jev.choice == null}<small class="warn">Jev thinks none of these is the same season.</small>{/if}
+                <div class="grid max-w-[440px] gap-1">
+                  <Command.Root shouldFilter={false} label="AniList candidates for {r.season.input.seasonTitle}" class="bg-transparent p-0">
+                    <div class="flex items-center gap-1.5 [&>div]:flex-1 [&>div]:p-0">
+                      <Command.Input
+                        bind:value={r.q}
+                        placeholder="Search AniList"
+                        onkeydown={(e) => {
+                          // Enter searches AniList (as the old form did) instead of picking the highlighted candidate.
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            searchFor(r);
+                          }
+                        }}
+                      />
+                      <Button variant="outline" size="sm" onclick={() => searchFor(r)}>Search</Button>
+                    </div>
+                    <Command.List class="max-h-none">
+                      {#if r.loadingCands}<Command.Loading><span class={MUTED}>Searching…</span></Command.Loading>{/if}
+                      {#each r.match.candidates as c (c.media.id)}
+                        <Command.Item
+                          value={String(c.media.id)}
+                          onSelect={() => pick(r, c)}
+                          class={cn('items-center gap-2.5 rounded-[9px] border border-transparent px-2 py-1.5 text-left', c.media.id === r.match.mediaId && 'border-primary')}
+                        >
+                          {#if c.media.coverImage.medium}<img src={c.media.coverImage.medium} alt="" class="h-[37px] w-[26px] shrink-0 rounded object-cover" />{/if}
+                          <span class="grid min-w-0 flex-1">
+                            <b class="truncate">{title(c.media)}</b>
+                            <small class={MUTED}>{c.media.format ?? '?'} · {c.media.seasonYear ?? '?'} · {c.media.episodes ?? '?'} eps</small>
+                          </span>
+                          <Hint text="Title/season/episode score"><Badge variant="secondary" class={pctClass(tone(c.score))}>{pct(c.score)}%</Badge></Hint>
+                          {#if r.match.jev}
+                            <Hint text="Jev's probability"><Badge variant="secondary" class={pctClass(r.match.jev.choice === c.media.id ? 'jevTop' : 'jev')}>Jev {jevPct(r, c.media.id)}%</Badge></Hint>
+                          {/if}
+                        </Command.Item>
+                      {/each}
+                    </Command.List>
+                  </Command.Root>
+                  {#if r.match.jev && r.match.jev.choice == null}<small class="text-primary text-xs">Jev thinks none of these is the same season.</small>{/if}
                   {#if hasJev && !r.match.jev && r.match.candidates.length > 1}
-                    <button class="link" onclick={() => askJev(r)}>Ask Jev which one</button>
+                    <Button variant="link" class={cn(LINK, 'justify-start')} onclick={() => askJev(r)}>Ask Jev which one</Button>
                   {/if}
                   {#if r.match.mediaId}
-                    <div class="split">
+                    <div class="grid gap-1 rounded-lg border border-dashed px-2 py-1.5">
                       {#if r.match.segments?.some((s) => s.seg.mediaId !== r.match!.mediaId)}
-                        <small>Split across {r.match.segments.length} AniList entries.</small>
-                        <button class="link" onclick={() => setSplit(r, false)}>undo split</button>
+                        <small class="text-xs">Split across {r.match.segments.length} AniList entries.</small>
+                        <Button variant="link" class={cn(LINK, 'justify-start')} onclick={() => setSplit(r, false)}>undo split</Button>
                       {:else}
-                        <button class="link" onclick={() => setSplit(r, true)}>split across AniList parts (Part 1 / Part 2…)</button>
+                        <Button variant="link" class={cn(LINK, 'justify-start whitespace-normal')} onclick={() => setSplit(r, true)}>split across AniList parts (Part 1 / Part 2…)</Button>
                       {/if}
-                      <label>
-                        <small>AniList ep before this season's ep 1</small>
-                        <input
+                      <label class="flex items-center gap-2">
+                        <small class="text-xs">AniList ep before this season's ep 1</small>
+                        <Input
                           type="number"
+                          class="h-7 w-[70px]"
                           min="0"
                           value={r.match.segments?.[0]?.seg.aniOffset ?? 0}
                           onchange={(e) => setOffset(r, e.currentTarget.valueAsNumber)}
@@ -678,394 +763,90 @@
                       </label>
                     </div>
                   {/if}
-                  <form class="search" onsubmit={(e) => (e.preventDefault(), searchFor(r))}>
-                    <input bind:value={r.q} placeholder="Search AniList" />
-                    <button class="btn">Search</button>
-                  </form>
-                  <div class="row">
-                    <button class="link" onclick={() => pick(r, 0)}>skip this season</button>
-                    <button class="link" onclick={() => (r.picking = false)}>cancel</button>
+                  <div class="flex items-center gap-2">
+                    <Button variant="link" class={LINK} onclick={() => pick(r, 0)}>skip this season</Button>
+                    <Button variant="link" class={LINK} onclick={() => (r.picking = false)}>cancel</Button>
                   </div>
                 </div>
               {:else if r.match?.media}
-                <div class="m">
-                  {#if r.match.media.coverImage.medium}<img src={r.match.media.coverImage.medium} alt="" />{/if}
-                  <span>
-                    <a href={`https://anilist.co/anime/${r.match.media.id}`} target="_blank" rel="noreferrer">{title(r.match.media)}</a>
-                    <span class="row">
+                <div class="flex items-center gap-2.5">
+                  {#if r.match.media.coverImage.medium}<img src={r.match.media.coverImage.medium} alt="" class="h-[42px] w-[30px] shrink-0 rounded-[5px] object-cover" />{/if}
+                  <span class="grid min-w-0 justify-items-start gap-0.5">
+                    <a href={`https://anilist.co/anime/${r.match.media.id}`} target="_blank" rel="noreferrer" class="text-foreground font-semibold no-underline hover:underline">{title(r.match.media)}</a>
+                    <span class="flex flex-wrap items-center gap-2">
                       {#if r.match.source === 'saved' && r.match.score == null}
-                        <span class="pct saved" title="Saved match from an earlier scan or your pick">saved</span>
+                        <Hint text="Saved match from an earlier scan or your pick"><Badge variant="secondary" class={pctClass('saved')}>saved</Badge></Hint>
                       {:else if r.match.source === 'jev'}
-                        <span class="pct jev top" title="Picked by Jev ({jevPct(r, r.match.mediaId)}% probability)">Jev pick</span>
+                        <Hint text="Picked by Jev ({jevPct(r, r.match.mediaId)}% probability)"><Badge variant="secondary" class={pctClass('jevTop')}>Jev pick</Badge></Hint>
                       {:else}
-                        <span class="pct {tone(r.match.score ?? 0)}" title="Match score: title, season and episode agreement (not a probability)">{pct(r.match.score)}%</span>
+                        <Hint text="Match score: title, season and episode agreement (not a probability)"><Badge variant="secondary" class={pctClass(tone(r.match.score ?? 0))}>{pct(r.match.score)}%</Badge></Hint>
                       {/if}
                       {#if r.match.source !== 'jev' && jevAgrees(r)}
-                        <span class="pct jev top" title="Jev picked the same entry ({jevPct(r, r.match.mediaId)}% probability)">Jev ✓</span>
+                        <Hint text="Jev picked the same entry ({jevPct(r, r.match.mediaId)}% probability)"><Badge variant="secondary" class={pctClass('jevTop')}>Jev <Check aria-hidden="true" /></Badge></Hint>
                       {:else if jevDisagrees(r)}
-                        <span class="pct mid" title="Jev's probability is spread across all options">Jev prefers {jevPickTitle(r)}{r.match.jev?.choice != null ? ` (${jevPct(r, r.match.jev?.choice)}%)` : ''}</span>
+                        <Hint text="Jev's probability is spread across all options"><Badge variant="secondary" class={pctClass('mid')}>Jev prefers {jevPickTitle(r)}{r.match.jev?.choice != null ? ` (${jevPct(r, r.match.jev?.choice)}%)` : ''}</Badge></Hint>
                       {/if}
-                      {#if r.match.candidates.length > 1}<small class="muted">{r.match.candidates.length - 1} other</small>{/if}
-                      {#if r.parts.length > 1}<small class="split-tag">split ×{r.parts.length}</small>{/if}
-                      {#if r.parts.length === 1 && r.parts[0]!.seg.aniOffset}<small class="split-tag">continues from ep {r.parts[0]!.seg.aniOffset + 1}</small>{/if}
-                      <button class="link" onclick={() => openPicker(r)}>change</button>
+                      {#if r.match.candidates.length > 1}<small class="text-muted-foreground text-xs">{r.match.candidates.length - 1} other</small>{/if}
+                      {#if r.parts.length > 1}<small class="text-xs text-[#7aa2ff]">split ×{r.parts.length}</small>{/if}
+                      {#if r.parts.length === 1 && r.parts[0]!.seg.aniOffset}<small class="text-xs text-[#7aa2ff]">continues from ep {r.parts[0]!.seg.aniOffset + 1}</small>{/if}
+                      <Button variant="link" class={LINK} onclick={() => openPicker(r)}>change</Button>
                     </span>
                   </span>
                 </div>
               {:else if r.match?.mediaId === 0}
-                <span class="muted">skipped</span> <button class="link" onclick={() => openPicker(r)}>match</button>
+                <span class={MUTED}>skipped</span> <Button variant="link" class={LINK} onclick={() => openPicker(r)}>match</Button>
               {:else if r.match}
-                <span class="row">
-                  {#if r.match.score != null}<span class="pct {tone(r.match.score)}" title="Best candidate">{pct(r.match.score)}%</span>{/if}
-                  <span class="warn">no confident match</span>
+                <span class="inline-flex flex-wrap items-center gap-2">
+                  {#if r.match.score != null}<Hint text="Best candidate"><Badge variant="secondary" class={pctClass(tone(r.match.score))}>{pct(r.match.score)}%</Badge></Hint>{/if}
+                  <span class="text-primary">no confident match</span>
                   {#if r.match.jev?.choice != null}
-                    <small class="muted">Jev leans {title(r.match.candidates.find((c) => c.media.id === r.match!.jev!.choice)?.media ?? r.match.candidates[0]!.media)} ({jevPct(r, r.match.jev.choice)}%)</small>
+                    <small class="text-muted-foreground text-xs">Jev leans {title(r.match.candidates.find((c) => c.media.id === r.match!.jev!.choice)?.media ?? r.match.candidates[0]!.media)} ({jevPct(r, r.match.jev.choice)}%)</small>
                   {/if}
-                  <button class="link" onclick={() => openPicker(r)}>pick ({r.match.candidates.length})</button>
+                  <Button variant="link" class={LINK} onclick={() => openPicker(r)}>pick ({r.match.candidates.length})</Button>
                 </span>
               {:else if r.result && r.result !== 'ok'}
-                <span class="err" title={r.result}>matching failed</span>
+                <Hint text={r.result}><span class="text-destructive">matching failed</span></Hint>
               {:else}
-                <span class="muted">…</span>
+                <span class={MUTED}>…</span>
               {/if}
-            </td>
+            </Table.Cell>
             {#if r.parts.length > 1}
-              <td>
+              <Table.Cell class="max-md:hidden">
                 {#each r.parts as p (p.media.id)}
-                  <div class="part"><small class="muted">{partLabel(p)}</small> {fmt(p.current?.status)} {p.current ? `· ${p.current.progress}` : ''}</div>
+                  <div class="whitespace-nowrap [&+&]:mt-1"><small class={SMALL}>{partLabel(p)}</small> {fmt(p.current?.status)} {p.current ? `· ${p.current.progress}` : ''}</div>
                 {/each}
-              </td>
-              <td>
-                {#if r.result && r.result !== 'ok'}<span class="err">{r.result}</span>{/if}
+              </Table.Cell>
+              <Table.Cell>
+                {#if r.result && r.result !== 'ok'}<span class="text-destructive">{r.result}</span>{/if}
                 {#each r.parts as p (p.media.id)}
-                  <div class="part">
-                    {#if p.plan}<b class:ok={r.result === 'ok'} class:back={p.plan.backport}>{r.result === 'ok' ? '✓ ' : ''}{p.plan.backport ? '↓ ' : ''}{fmt(p.plan.status)}</b> · {p.plan.progress}
-                    {:else}<span class="muted">no change</span>{/if}
+                  <div class="whitespace-nowrap [&+&]:mt-1">
+                    {#if p.plan}<b class={cn('inline-flex items-center gap-0.5', r.result === 'ok' && 'text-success', p.plan.backport && 'text-destructive')}>{#if r.result === 'ok'}<Check class="size-3.5" aria-hidden="true" />{/if}{#if p.plan.backport}<ArrowDown class="size-3.5" aria-label="backport" />{/if}{fmt(p.plan.status)}</b> · {p.plan.progress}
+                    {:else}<span class={MUTED}>no change</span>{/if}
                   </div>
                 {/each}
                 {#if phase === 'review'}
-                  <label class="bp" title="Write Crunchyroll's progress and status exactly, even if lower than AniList">
-                    <input type="checkbox" bind:checked={r.backport} onchange={() => replan(r)} /> backport
-                  </label>
+                  <Hint text="Write Crunchyroll's progress and status exactly, even if lower than AniList" class="mt-0.5 block w-fit">
+                    <label class="text-muted-foreground flex items-center gap-1 text-[11px]"><Checkbox class="size-3.5" bind:checked={r.backport} onCheckedChange={() => replan(r)} /> backport</label>
+                  </Hint>
                 {/if}
-              </td>
+              </Table.Cell>
             {:else}
-              <td>{fmt(r.current?.status)} {r.current ? `· ${r.current.progress}` : ''}</td>
-              <td>
-                {#if r.result === 'ok'}<span class="ok">✓ {fmt(r.plan?.status)} · {r.plan?.progress}</span>
-                {:else if r.result}<span class="err">{r.result}</span>
-                {:else if r.plan}<b class:back={r.plan.backport}>{r.plan.backport ? '↓ ' : ''}{fmt(r.plan.status)}</b> · {r.plan.progress}
-                {:else}<span class="muted">no change</span>{/if}
+              <Table.Cell class="max-md:hidden">{fmt(r.current?.status)} {r.current ? `· ${r.current.progress}` : ''}</Table.Cell>
+              <Table.Cell>
+                {#if r.result === 'ok'}<span class="text-success inline-flex items-center gap-0.5"><Check class="size-3.5" aria-hidden="true" /> {fmt(r.plan?.status)} · {r.plan?.progress}</span>
+                {:else if r.result}<span class="text-destructive">{r.result}</span>
+                {:else if r.plan}<b class={cn('inline-flex items-center gap-0.5', r.plan.backport && 'text-destructive')}>{#if r.plan.backport}<ArrowDown class="size-3.5" aria-label="backport" />{/if}{fmt(r.plan.status)}</b> · {r.plan.progress}
+                {:else}<span class={MUTED}>no change</span>{/if}
                 {#if r.match?.mediaId && phase === 'review'}
-                  <label class="bp" title="Write Crunchyroll's progress and status exactly, even if lower than AniList">
-                    <input type="checkbox" bind:checked={r.backport} onchange={() => replan(r)} /> backport
-                  </label>
+                  <Hint text="Write Crunchyroll's progress and status exactly, even if lower than AniList" class="mt-0.5 block w-fit">
+                    <label class="text-muted-foreground flex items-center gap-1 text-[11px]"><Checkbox class="size-3.5" bind:checked={r.backport} onCheckedChange={() => replan(r)} /> backport</label>
+                  </Hint>
                 {/if}
-              </td>
+              </Table.Cell>
             {/if}
-          </tr>
+          </Table.Row>
         {/each}
-      </tbody>
-    </table>
+      </Table.Body>
+    </Table.Root>
   {/if}
 </section>
-
-<style>
-  .pane {
-    display: grid;
-    gap: 18px;
-  }
-  h2 {
-    margin: 0 0 6px;
-    font-size: 24px;
-    letter-spacing: -0.02em;
-  }
-  h2 span {
-    color: var(--accent);
-  }
-  header p {
-    max-width: 70ch;
-    margin: 0;
-  }
-  .rules {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px 22px;
-    align-items: center;
-    padding: 14px;
-    border-radius: 12px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-  }
-  .rules input[type='number'] {
-    width: 64px;
-  }
-  .rules .btn {
-    margin-left: auto;
-  }
-  .confirm {
-    display: grid;
-    gap: 8px;
-    padding: 14px;
-    border-radius: 12px;
-    border: 1px solid var(--accent);
-    background: var(--surface);
-  }
-  .confirm p {
-    margin: 0;
-  }
-  .confirm .row {
-    display: flex;
-    gap: 8px;
-  }
-  .status {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .spin {
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--muted);
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed; /* columns keep their share instead of sizing to content */
-  }
-  td {
-    overflow-wrap: anywhere;
-  }
-  th {
-    text-align: left;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    padding: 8px;
-    border-bottom: 1px solid var(--line);
-  }
-  td {
-    padding: 10px 8px;
-    border-bottom: 1px solid var(--line);
-    vertical-align: middle;
-  }
-  td small {
-    display: block;
-    color: var(--muted);
-  }
-  tr.off td {
-    opacity: 0.6;
-  }
-  .m {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .m img {
-    width: 30px;
-    height: 42px;
-    object-fit: cover;
-    border-radius: 5px;
-  }
-  .m span {
-    display: grid;
-    justify-items: start;
-  }
-  .m a {
-    color: var(--text);
-    text-decoration: none;
-    font-weight: 600;
-  }
-  .link {
-    background: none;
-    border: 0;
-    padding: 0;
-    color: var(--accent);
-    font-size: 12px;
-  }
-  .season {
-    display: block;
-    color: var(--text);
-    opacity: 0.85;
-  }
-  .diff {
-    display: inline-block;
-    font-size: 11px;
-    margin-top: 2px;
-  }
-  .replay {
-    display: inline-flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .diffsum {
-    margin: 0;
-  }
-  .bp {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 2px;
-  }
-  .back {
-    color: var(--err);
-  }
-  .part {
-    white-space: nowrap;
-  }
-  .part + .part {
-    margin-top: 4px;
-  }
-  .split {
-    display: grid;
-    gap: 4px;
-    padding: 6px 8px;
-    border: 1px dashed var(--line);
-    border-radius: 8px;
-  }
-  .split label {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .split input {
-    width: 70px;
-  }
-  .split-tag {
-    color: #7aa2ff;
-  }
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .seg {
-    display: inline-flex;
-    padding: 3px;
-    border-radius: 10px;
-    background: rgb(255 255 255 / 0.05);
-  }
-  .seg button {
-    border: 0;
-    background: none;
-    padding: 6px 12px;
-    border-radius: 8px;
-    color: var(--muted);
-    font-weight: 600;
-  }
-  .seg button.on {
-    background: var(--accent);
-    color: #160b02;
-  }
-  .seg small {
-    opacity: 0.75;
-    margin-left: 4px;
-  }
-  .row {
-    display: inline-flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .pct {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 1px 7px;
-    border-radius: 999px;
-    font-variant-numeric: tabular-nums;
-  }
-  .pct.good {
-    background: rgb(61 220 151 / 0.15);
-    color: var(--ok);
-  }
-  .pct.mid {
-    background: rgb(255 180 84 / 0.15);
-    color: #ffb454;
-  }
-  .pct.low,
-  .pct.saved {
-    background: rgb(255 255 255 / 0.06);
-    color: var(--muted);
-  }
-  .pct.low {
-    color: var(--err);
-  }
-  .pct.jev {
-    background: rgb(167 139 250 / 0.12);
-    color: #a78bfa;
-  }
-  .pct.jev.top {
-    background: rgb(167 139 250 / 0.25);
-  }
-  .picker {
-    display: grid;
-    gap: 4px;
-    max-width: 440px;
-  }
-  .cand {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    text-align: left;
-    padding: 5px 8px;
-    border-radius: 9px;
-    border: 1px solid transparent;
-    background: none;
-  }
-  .cand:hover {
-    border-color: var(--line);
-    background: rgb(255 255 255 / 0.04);
-  }
-  .cand.current {
-    border-color: var(--accent);
-  }
-  .cand img {
-    width: 26px;
-    height: 37px;
-    object-fit: cover;
-    border-radius: 4px;
-  }
-  .ct {
-    display: grid;
-    flex: 1;
-    min-width: 0;
-  }
-  .ct small {
-    color: var(--muted);
-  }
-  .search {
-    display: flex;
-    gap: 6px;
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-  }
-  .ok {
-    color: var(--ok);
-  }
-  .warn {
-    color: var(--accent);
-  }
-  .err {
-    color: var(--err);
-  }
-  @media (max-width: 720px) {
-    th:nth-child(4),
-    td:nth-child(4) {
-      display: none;
-    }
-  }
-</style>

@@ -2,6 +2,19 @@
   import { bg, type BgResponses } from '@/lib/messages';
   import { DECLUTTER_LABEL, ROW_PRESETS, getSettings, patchSettings, typesafeKeyItem, type DeclutterKey, type Settings } from '@/lib/settings';
   import type { Mode } from '@/lib/types';
+  import Segmented from '@/components/Segmented.svelte';
+  import Hint from '@/components/Hint.svelte';
+  import * as Card from '@/components/ui/card';
+  import * as Collapsible from '@/components/ui/collapsible';
+  import * as Select from '@/components/ui/select';
+  import * as Tooltip from '@/components/ui/tooltip';
+  import { Badge } from '@/components/ui/badge';
+  import { Button } from '@/components/ui/button';
+  import { Input } from '@/components/ui/input';
+  import { Switch } from '@/components/ui/switch';
+  import { cn } from '@/lib/utils';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Plus from '@lucide/svelte/icons/plus';
 
   let s = $state<Settings | null>(null);
   let status = $state<BgResponses['anilist:status'] | null>(null);
@@ -90,370 +103,243 @@
     { id: 'all', label: 'All', hint: 'Stock Crunchyroll listings.' },
   ];
   const LOCALES = ['en-US', 'es-419', 'es-ES', 'pt-BR', 'fr-FR', 'de-DE', 'it-IT', 'ru-RU', 'ar-SA', 'hi-IN'];
+
+  /** Settings toggles rendered as a Switch row. */
+  const TOGGLES: { key: 'theme' | 'badges' | 'hideCompleted' | 'upNextRow' | 'compactHero'; label: string; hint?: string }[] = [
+    { key: 'theme', label: 'Modern theme' },
+    { key: 'badges', label: 'Status badges on cards' },
+    {
+      key: 'hideCompleted',
+      label: 'Hide completed shows',
+      hint: "Hidden unless a new original-audio episode came out after you completed it (new dubs don't count)",
+    },
+    { key: 'upNextRow', label: '"Up next from AniList" row on home' },
+    { key: 'compactHero', label: 'Compact hero banner' },
+  ];
+
+  const LINE = 'flex items-center justify-between gap-2.5';
+  const LINK = 'h-auto p-0 text-left text-[13px] font-normal';
+  const H2 = 'text-muted-foreground m-0 flex items-center gap-1 text-xs font-semibold tracking-[0.08em] uppercase';
+  const HINT = 'text-muted-foreground m-0 text-xs';
 </script>
 
-<main>
-  <h1>Crunchy<span>+</span></h1>
+<Tooltip.Provider delayDuration={300}>
+  <main class="grid w-[320px] gap-3.5 p-4">
+    <h1 class="m-0 text-lg font-bold tracking-[-0.01em]">Crunchy<span class="text-primary">+</span></h1>
 
-  {#if s}
-    <section>
-      <div class="seg" role="radiogroup" aria-label="Audio mode">
-        {#each MODES as m}
-          <button role="radio" aria-checked={s.mode === m.id} class:on={s.mode === m.id} onclick={() => set('mode', m.id)}>
-            {m.label}
-          </button>
-        {/each}
-      </div>
-      <p class="muted hint">{MODES.find((m) => m.id === s!.mode)?.hint}</p>
-      {#if s.mode === 'dub'}
-        <label class="line">
-          Dub language
-          <select value={s.dubLocale} onchange={(e) => set('dubLocale', e.currentTarget.value)}>
-            {#each LOCALES as l}<option value={l}>{l}</option>{/each}
-          </select>
-        </label>
-      {/if}
-    </section>
+    {#if s}
+      <Card.Root size="sm" class="gap-2.5 shadow-none">
+        <Card.Content class="grid gap-2.5">
+          <Segmented options={MODES} value={s.mode} ariaLabel="Audio mode" grow onchange={(m) => set('mode', m)} />
+          <p class={HINT}>{MODES.find((m) => m.id === s!.mode)?.hint}</p>
+          {#if s.mode === 'dub'}
+            <div class={LINE}>
+              <span id="dub-locale-label">Dub language</span>
+              <Select.Root type="single" value={s.dubLocale} onValueChange={(v) => set('dubLocale', v)}>
+                <Select.Trigger size="sm" aria-labelledby="dub-locale-label">{s.dubLocale}</Select.Trigger>
+                <Select.Content>
+                  {#each LOCALES as l (l)}<Select.Item value={l} label={l} />{/each}
+                </Select.Content>
+              </Select.Root>
+            </div>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-    <section>
-      <h2>AniList</h2>
-      {#if status?.user}
-        <div class="user">
-          <img src={status.user.avatar.medium} alt="" />
-          <b>{status.user.name}</b>
-          <button class="btn" onclick={logout}>Sign out</button>
-        </div>
-        <label class="line">
-          Auto-sync after watching
-          <input type="checkbox" checked={s.autoSync} onchange={(e) => set('autoSync', e.currentTarget.checked)} />
-        </label>
-        <label class="line" class:dim={!s.autoSync}>
-          Threshold <b>{Math.round(s.syncThreshold * 100)}%</b>
-          <input
-            type="range"
-            min="0.5"
-            max="0.98"
-            step="0.01"
-            value={s.syncThreshold}
-            oninput={(e) => set('syncThreshold', Number(e.currentTarget.value))}
-          />
-        </label>
-        <label class="line">
-          Auto-sync AniList → Crunchyroll
-          <input type="checkbox" checked={s.autoExport} onchange={(e) => set('autoExport', e.currentTarget.checked)} />
-        </label>
-        {#if s.autoExport}
-          <label class="line">
-            Apply additions automatically
-            <input type="checkbox" checked={s.autoApplyAdds} onchange={(e) => set('autoApplyAdds', e.currentTarget.checked)} />
-          </label>
-          <label class="line">
-            Every
-            <span class="hours">
+      <Card.Root size="sm" class="gap-2.5 shadow-none">
+        <Card.Header><Card.Title class={H2}>AniList</Card.Title></Card.Header>
+        <Card.Content class="grid gap-2.5">
+          {#if status?.user}
+            <div class="flex items-center gap-2.5">
+              <img src={status.user.avatar.medium} alt="" class="size-[30px] rounded-full" />
+              <b class="flex-1 truncate">{status.user.name}</b>
+              <Button variant="outline" size="sm" onclick={logout}>Sign out</Button>
+            </div>
+            <label class={LINE}>
+              Auto-sync after watching
+              <Switch checked={s.autoSync} onCheckedChange={(v) => set('autoSync', v)} />
+            </label>
+            <label class={cn(LINE, !s.autoSync && 'opacity-50')}>
+              <span>Threshold <b>{Math.round(s.syncThreshold * 100)}%</b></span>
               <input
-                type="number"
-                min="1"
-                max="168"
-                step="1"
-                value={s.autoExportHours}
-                onchange={(e) => {
-                  const n = Math.round(Number(e.currentTarget.value));
-                  const v = Number.isFinite(n) ? Math.min(168, Math.max(1, n)) : 6;
-                  e.currentTarget.value = String(v);
-                  set('autoExportHours', v);
-                }}
+                type="range"
+                class="accent-primary w-32"
+                min="0.5"
+                max="0.98"
+                step="0.01"
+                value={s.syncThreshold}
+                oninput={(e) => set('syncThreshold', Number(e.currentTarget.value))}
               />
-              hours
-            </span>
-          </label>
-        {/if}
-      {:else}
-        <label class="line col">
-          AniList client ID
-          <input
-            value={s.anilistClientId}
-            inputmode="numeric"
-            placeholder="e.g. 12345"
-            onchange={(e) => set('anilistClientId', e.currentTarget.value.trim())}
-          />
-        </label>
-        <button class="btn primary wide" disabled={busy || !s.anilistClientId} onclick={login}>
-          {busy ? 'Connecting…' : 'Connect AniList'}
-        </button>
-        <button class="linkish" onclick={() => (showSetup = !showSetup)}>How do I get a client ID?</button>
-        {#if showSetup}
-          <ol class="muted setup">
-            <li>Open <a href="https://anilist.co/settings/developer" target="_blank" rel="noreferrer">anilist.co/settings/developer</a> → Create new client.</li>
-            <li>Redirect URL: <code>{status?.redirectUrl}</code></li>
-            <li>Paste the client ID above, then Connect.</li>
-          </ol>
-          <p class="muted setup-alt">
-            <b>Connect fails?</b> (e.g. Brave/other Chromium) Set the client's Redirect URL to
-            <code>https://anilist.co/api/v2/oauth/pin</code>, then
-            <a href={`https://anilist.co/api/v2/oauth/authorize?client_id=${s.anilistClientId}&response_type=token`} target="_blank" rel="noreferrer">authorize here</a>
-            and paste the token AniList shows:
-          </p>
-          <div class="pin">
-            <input bind:value={pasted} placeholder="Paste AniList token" />
-            <button class="btn" disabled={busy || !pasted.trim() || !s.anilistClientId} onclick={usePin}>Use</button>
-          </div>
-        {/if}
-      {/if}
-    </section>
+            </label>
+            <label class={LINE}>
+              Auto-sync AniList → Crunchyroll
+              <Switch checked={s.autoExport} onCheckedChange={(v) => set('autoExport', v)} />
+            </label>
+            {#if s.autoExport}
+              <label class={LINE}>
+                Apply additions automatically
+                <Switch checked={s.autoApplyAdds} onCheckedChange={(v) => set('autoApplyAdds', v)} />
+              </label>
+              <label class={LINE}>
+                Every
+                <span class="flex items-center gap-1.5">
+                  <Input
+                    type="number"
+                    class="h-7 w-16"
+                    min="1"
+                    max="168"
+                    step="1"
+                    value={s.autoExportHours}
+                    onchange={(e) => {
+                      const n = Math.round(Number(e.currentTarget.value));
+                      const v = Number.isFinite(n) ? Math.min(168, Math.max(1, n)) : 6;
+                      e.currentTarget.value = String(v);
+                      set('autoExportHours', v);
+                    }}
+                  />
+                  hours
+                </span>
+              </label>
+            {/if}
+          {:else}
+            <label class="grid gap-1.5">
+              AniList client ID
+              <Input
+                value={s.anilistClientId}
+                inputmode="numeric"
+                placeholder="e.g. 12345"
+                onchange={(e) => set('anilistClientId', e.currentTarget.value.trim())}
+              />
+            </label>
+            <Button class="w-full" disabled={busy || !s.anilistClientId} onclick={login}>
+              {busy ? 'Connecting…' : 'Connect AniList'}
+            </Button>
+            <Button variant="link" class={cn(LINK, 'justify-start')} onclick={() => (showSetup = !showSetup)}>How do I get a client ID?</Button>
+            {#if showSetup}
+              <ol class="text-muted-foreground m-0 grid list-decimal gap-1 pl-[18px]">
+                <li>
+                  Open <a href="https://anilist.co/settings/developer" target="_blank" rel="noreferrer">anilist.co/settings/developer</a> → Create new
+                  client.
+                </li>
+                <li>Redirect URL: <code class="text-foreground break-all">{status?.redirectUrl}</code></li>
+                <li>Paste the client ID above, then Connect.</li>
+              </ol>
+              <p class={HINT}>
+                <b>Connect fails?</b> (e.g. Brave/other Chromium) Set the client's Redirect URL to
+                <code class="text-foreground break-all">https://anilist.co/api/v2/oauth/pin</code>, then
+                <a href={`https://anilist.co/api/v2/oauth/authorize?client_id=${s.anilistClientId}&response_type=token`} target="_blank" rel="noreferrer"
+                  >authorize here</a
+                >
+                and paste the token AniList shows:
+              </p>
+              <div class="flex gap-1.5">
+                <Input bind:value={pasted} placeholder="Paste AniList token" class="min-w-0 flex-1" />
+                <Button variant="outline" disabled={busy || !pasted.trim() || !s.anilistClientId} onclick={usePin}>Use</Button>
+              </div>
+            {/if}
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-    <section>
-      <h2>Jev matching <span class="opt">optional</span></h2>
-      <p class="muted hint">Jev (TypeSafe) double-checks AniList matches the scorer isn't sure about. Without a key, matching works as usual.</p>
-      {#if hasJevKey}
-        <label class="line">
-          Use Jev for unsure matches
-          <input type="checkbox" checked={s.jevEnabled} onchange={(e) => set('jevEnabled', e.currentTarget.checked)} />
-        </label>
-        <label class="line" class:dim={!s.jevEnabled}>
-          Auto-accept at <b>{Math.round(s.jevAccept * 100)}%</b>
-          <input type="range" min="0.7" max="0.99" step="0.01" value={s.jevAccept} oninput={(e) => set('jevAccept', Number(e.currentTarget.value))} />
-        </label>
-        <button class="linkish" onclick={removeJevKey}>Remove TypeSafe key</button>
-      {:else}
-        <div class="pin">
-          <input type="password" bind:value={jevKey} placeholder="TypeSafe API key" autocomplete="off" />
-          <button class="btn" disabled={!jevKey.trim()} onclick={saveJevKey}>Save</button>
-        </div>
-        <p class="muted hint">Stored only in this browser (not synced) and sent only to api.typesafe.ai.</p>
-      {/if}
-    </section>
+      <Card.Root size="sm" class="gap-2.5 shadow-none">
+        <Card.Header>
+          <Card.Title class={H2}>Jev matching <Badge variant="outline" class="h-4 px-1.5 text-[10px] font-normal tracking-normal normal-case">optional</Badge></Card.Title>
+        </Card.Header>
+        <Card.Content class="grid gap-2.5">
+          <p class={HINT}>Jev (TypeSafe) double-checks AniList matches the scorer isn't sure about. Without a key, matching works as usual.</p>
+          {#if hasJevKey}
+            <label class={LINE}>
+              Use Jev for unsure matches
+              <Switch checked={s.jevEnabled} onCheckedChange={(v) => set('jevEnabled', v)} />
+            </label>
+            <label class={cn(LINE, !s.jevEnabled && 'opacity-50')}>
+              <span>Auto-accept at <b>{Math.round(s.jevAccept * 100)}%</b></span>
+              <input type="range" class="accent-primary w-32" min="0.7" max="0.99" step="0.01" value={s.jevAccept} oninput={(e) => set('jevAccept', Number(e.currentTarget.value))} />
+            </label>
+            <Button variant="link" class={cn(LINK, 'justify-start')} onclick={removeJevKey}>Remove TypeSafe key</Button>
+          {:else}
+            <div class="flex gap-1.5">
+              <Input type="password" bind:value={jevKey} placeholder="TypeSafe API key" autocomplete="off" class="min-w-0 flex-1" />
+              <Button variant="outline" disabled={!jevKey.trim()} onclick={saveJevKey}>Save</Button>
+            </div>
+            <p class={HINT}>Stored only in this browser (not synced) and sent only to api.typesafe.ai.</p>
+          {/if}
+        </Card.Content>
+      </Card.Root>
 
-    <section>
-      <label class="line">
-        Modern theme
-        <input type="checkbox" checked={s.theme} onchange={(e) => set('theme', e.currentTarget.checked)} />
-      </label>
-      <label class="line">
-        Status badges on cards
-        <input type="checkbox" checked={s.badges} onchange={(e) => set('badges', e.currentTarget.checked)} />
-      </label>
-      <label class="line" title="Hidden unless a new original-audio episode came out after you completed it (new dubs don't count)">
-        Hide completed shows
-        <input type="checkbox" checked={s.hideCompleted} onchange={(e) => set('hideCompleted', e.currentTarget.checked)} />
-      </label>
-      <label class="line">
-        "Up next from AniList" row on home
-        <input type="checkbox" checked={s.upNextRow} onchange={(e) => set('upNextRow', e.currentTarget.checked)} />
-      </label>
-      <label class="line">
-        Compact hero banner
-        <input type="checkbox" checked={s.compactHero} onchange={(e) => set('compactHero', e.currentTarget.checked)} />
-      </label>
-      <details class="declutter">
-        <summary>Hidden home rows ({s.hiddenRows.length})</summary>
-        <p class="muted hint">Matches row titles (partial text works). Tip: hover a row title on Crunchyroll → “Hide row”.</p>
-        <div class="presets">
-          {#each ROW_PRESETS.filter((p) => !s!.hiddenRows.includes(p)) as p}
-            <button class="chip" onclick={() => set('hiddenRows', [...s!.hiddenRows, p])}>+ {p}</button>
+      <Card.Root size="sm" class="gap-2.5 shadow-none">
+        <Card.Content class="grid gap-2.5">
+          {#each TOGGLES as t (t.key)}
+            <label class={LINE}>
+              {#if t.hint}<Hint text={t.hint}>{t.label}</Hint>{:else}{t.label}{/if}
+              <Switch checked={s[t.key]} onCheckedChange={(v) => set(t.key, v)} />
+            </label>
           {/each}
-        </div>
-        {#each s.hiddenRows as r}
-          <div class="line">
-            <span class="rowname">{r}</span>
-            <button class="linkish" onclick={() => set('hiddenRows', s!.hiddenRows.filter((x) => x !== r))}>Show</button>
-          </div>
-        {/each}
-        <form class="pin" onsubmit={(e) => { e.preventDefault(); const v = rowInput.trim(); if (v && !s!.hiddenRows.includes(v)) set('hiddenRows', [...s!.hiddenRows, v]); rowInput = ''; }}>
-          <input bind:value={rowInput} placeholder="Row title to hide" />
-          <button class="btn" disabled={!rowInput.trim()}>Hide</button>
-        </form>
-      </details>
-      <details class="declutter">
-        <summary>Hide on Crunchyroll</summary>
-        {#each Object.entries(DECLUTTER_LABEL) as [key, name]}
-          <label class="line">
-            {name}
-            <input
-              type="checkbox"
-              checked={s.declutter[key as DeclutterKey]}
-              onchange={(e) => set('declutter', { ...s!.declutter, [key]: e.currentTarget.checked })}
-            />
-          </label>
-        {/each}
-      </details>
-    </section>
 
-    <nav class="hub" aria-label="Open Crunchy+ hub">
-      <button class="btn" onclick={() => openHub('upnext')}>Up next</button>
-      <button class="btn" onclick={() => openHub('import')}>Import</button>
-      <button class="btn" onclick={() => openHub('export')}>Export</button>
-    </nav>
-  {/if}
+          <Collapsible.Root class="grid gap-2">
+            <Collapsible.Trigger class="text-muted-foreground hover:text-foreground group flex items-center gap-1 text-left">
+              <ChevronRight class="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden="true" />
+              Hidden home rows ({s.hiddenRows.length})
+            </Collapsible.Trigger>
+            <Collapsible.Content class="grid gap-2">
+              <p class={HINT}>Matches row titles (partial text works). Tip: hover a row title on Crunchyroll → “Hide row”.</p>
+              <div class="flex flex-wrap gap-1.5">
+                {#each ROW_PRESETS.filter((p) => !s!.hiddenRows.includes(p)) as p (p)}
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    class="text-muted-foreground hover:border-primary hover:text-foreground rounded-full border-dashed bg-transparent font-normal"
+                    onclick={() => set('hiddenRows', [...s!.hiddenRows, p])}
+                  >
+                    <Plus aria-hidden="true" />{p}
+                  </Button>
+                {/each}
+              </div>
+              {#each s.hiddenRows as r (r)}
+                <div class={LINE}>
+                  <span class="truncate">{r}</span>
+                  <Button variant="link" class={LINK} onclick={() => set('hiddenRows', s!.hiddenRows.filter((x) => x !== r))}>Show</Button>
+                </div>
+              {/each}
+              <form
+                class="flex gap-1.5"
+                onsubmit={(e) => {
+                  e.preventDefault();
+                  const v = rowInput.trim();
+                  if (v && !s!.hiddenRows.includes(v)) set('hiddenRows', [...s!.hiddenRows, v]);
+                  rowInput = '';
+                }}
+              >
+                <Input bind:value={rowInput} placeholder="Row title to hide" class="min-w-0 flex-1" />
+                <Button variant="outline" type="submit" disabled={!rowInput.trim()}>Hide</Button>
+              </form>
+            </Collapsible.Content>
+          </Collapsible.Root>
 
-  {#if error}<p class="err">{error}</p>{/if}
-</main>
+          <Collapsible.Root class="grid gap-2">
+            <Collapsible.Trigger class="text-muted-foreground hover:text-foreground group flex items-center gap-1 text-left">
+              <ChevronRight class="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden="true" />
+              Hide on Crunchyroll
+            </Collapsible.Trigger>
+            <Collapsible.Content class="grid gap-2">
+              {#each Object.entries(DECLUTTER_LABEL) as [key, name] (key)}
+                <label class={LINE}>
+                  {name}
+                  <Switch checked={s.declutter[key as DeclutterKey]} onCheckedChange={(v) => set('declutter', { ...s!.declutter, [key]: v })} />
+                </label>
+              {/each}
+            </Collapsible.Content>
+          </Collapsible.Root>
+        </Card.Content>
+      </Card.Root>
 
-<style>
-  main {
-    width: 320px;
-    padding: 16px;
-    display: grid;
-    gap: 14px;
-  }
-  h1 {
-    margin: 0;
-    font-size: 18px;
-    letter-spacing: -0.01em;
-  }
-  h1 span {
-    color: var(--accent);
-  }
-  h2 {
-    margin: 0 0 8px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-  section {
-    display: grid;
-    gap: 10px;
-    padding: 12px;
-    border-radius: 12px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-  }
-  .seg {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    padding: 3px;
-    border-radius: 10px;
-    background: rgb(255 255 255 / 0.05);
-  }
-  .seg button {
-    border: 0;
-    background: none;
-    padding: 8px 0;
-    border-radius: 8px;
-    color: var(--muted);
-    font-weight: 650;
-  }
-  .seg button.on {
-    background: var(--accent);
-    color: #160b02;
-  }
-  .hint {
-    margin: 0;
-    font-size: 12px;
-  }
-  .line {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-  }
-  .line.col {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .dim {
-    opacity: 0.5;
-  }
-  .wide {
-    width: 100%;
-  }
-  .user {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .user img {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-  }
-  .user b {
-    flex: 1;
-  }
-  .linkish {
-    background: none;
-    border: 0;
-    color: var(--accent);
-    padding: 0;
-    text-align: left;
-  }
-  .setup {
-    margin: 0;
-    padding-left: 18px;
-    display: grid;
-    gap: 4px;
-  }
-  code {
-    word-break: break-all;
-    color: var(--text);
-  }
-  .setup-alt {
-    margin: 0;
-    font-size: 12px;
-  }
-  .pin {
-    display: flex;
-    gap: 6px;
-  }
-  .pin input {
-    flex: 1;
-    min-width: 0;
-  }
-  .hours {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .hours input {
-    width: 64px;
-  }
-  .hub {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-  }
-  .declutter {
-    display: grid;
-    gap: 8px;
-  }
-  .declutter summary {
-    cursor: pointer;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
-  .presets {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .chip {
-    border: 1px dashed var(--line);
-    background: none;
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .chip:hover {
-    color: var(--text);
-    border-color: var(--accent);
-  }
-  .rowname {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .opt {
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    text-transform: none;
-    letter-spacing: 0;
-    margin-left: 4px;
-  }
-  .err {
-    color: var(--err);
-    margin: 0;
-  }
-</style>
+      <nav class="grid grid-cols-3 gap-2" aria-label="Open Crunchy+ hub">
+        <Button variant="outline" onclick={() => openHub('upnext')}>Up next</Button>
+        <Button variant="outline" onclick={() => openHub('import')}>Import</Button>
+        <Button variant="outline" onclick={() => openHub('export')}>Export</Button>
+      </nav>
+    {/if}
+
+    {#if error}<p class="text-destructive m-0">{error}</p>{/if}
+  </main>
+</Tooltip.Provider>

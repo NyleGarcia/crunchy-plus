@@ -4,7 +4,8 @@
  */
 import * as cr from '@/lib/cr-api';
 import { audioInfo, isOriginal } from '@/lib/dub';
-import { normalize, similarity } from '@/lib/matcher';
+import { baseTitle, normalize, similarity } from '@/lib/matcher';
+export { baseTitle };
 import {
   sortUpNext,
   bg,
@@ -22,17 +23,6 @@ const LIST_PREFIX = 'AniList · ';
 const SEARCH_ACCEPT = 0.82;
 
 export const titleOf = (e: AniListItem) => e.media.title.english ?? e.media.title.romaji ?? `#${e.mediaId}`;
-
-/** Strip season/part markers so "Foo Season 2" matches the CR series "Foo". */
-export function baseTitle(t: string): string {
-  return normalize(t)
-    .replace(/\b(season|part|cour)\s*\d+\b/g, '')
-    .replace(/\b\d+(st|nd|rd|th)\s+season\b/g, '')
-    .replace(/\b(final season|the final chapters?)\b/g, '')
-    .replace(/\s+(ii|iii|iv|v|vi)$/g, '')
-    .replace(/\s+\d+$/g, '')
-    .trim();
-}
 
 export function seasonNumberOf(e: AniListItem): number {
   for (const t of [e.media.title.english, e.media.title.romaji, ...(e.media.synonyms ?? [])]) {

@@ -1,9 +1,9 @@
 import * as anilist from '@/lib/anilist';
-import { AUTO_ACCEPT, queriesFor, rank, type MatchInput } from '@/lib/matcher';
+import { AUTO_ACCEPT, pickPlanMedia, queriesFor, rank, type MatchInput } from '@/lib/matcher';
 import { respond, type BgRequest, type BgResponses, type CrOp, type MatchResult, type Ranked, type UndoRow } from '@/lib/messages';
 import * as jev from '@/lib/jev';
 import { progressBySegment, segmentAt, single, splitSegments, type Segment } from '@/lib/segments';
-import { getSettings, matchesItem, segmentsItem, tokenItem, typesafeKeyItem, type ImportLogItem } from '@/lib/settings';
+import { crSeriesItem, getSettings, matchesItem, segmentsItem, tokenItem, typesafeKeyItem, type ImportLogItem } from '@/lib/settings';
 import type { AniEntry, AniListItem, AniMedia } from '@/lib/types';
 
 export default defineBackground(() => {
@@ -136,7 +136,7 @@ async function requireToken() {
 
 async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
   // Any AniList write makes the cached full list stale.
-  if (['anilist:save', 'anilist:saveMany', 'sync:episode', 'undo:apply'].includes(msg.type)) listCache = null;
+  if (['anilist:save', 'anilist:plan', 'anilist:saveMany', 'sync:episode', 'undo:apply'].includes(msg.type)) listCache = null;
   switch (msg.type) {
     case 'anilist:status':
       return { user: await currentUser(), redirectUrl: browser.identity.getRedirectURL() };
@@ -169,6 +169,17 @@ async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
     }
     case 'anilist:save':
       return anilist.saveEntry(await requireToken(), msg.mediaId, msg.patch);
+    case 'anilist:plan': {
+      // "+ Plan" on a Crunchyroll card: find the show's first season on AniList and add it as Planning.
+      const token = await requireToken();
+      const media = pickPlanMedia(await anilist.search(msg.title, token), msg.title);
+      if (!media) throw new Error(`No exact AniList match for "${msg.title}" — open an episode and pick it in the Crunchy+ widget.`);
+      const cur = await crSeriesItem.getValue();
+      if (!cur[media.id]) await crSeriesItem.setValue({ ...cur, [media.id]: msg.seriesId });
+      if (media.mediaListEntry) return { entry: media.mediaListEntry, media, existed: true };
+      const entry = await anilist.saveEntry(token, media.id, { status: 'PLANNING' });
+      return { entry, media, existed: false };
+    }
     case 'match:resolve':
       return resolve(msg.key, msg.input, msg.force);
     case 'match:resolveMany':

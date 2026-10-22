@@ -2,11 +2,18 @@
   import { bg, type UndoRow } from '@/lib/messages';
   import { importLogItem, type ImportLogItem } from '@/lib/settings';
   import { STATUS_LABEL, type ListStatus } from '@/lib/types';
+  import Busy from '@/components/Busy.svelte';
+  import * as Card from '@/components/ui/card';
+  import * as Select from '@/components/ui/select';
+  import * as Table from '@/components/ui/table';
+  import { Button } from '@/components/ui/button';
+  import { Checkbox } from '@/components/ui/checkbox';
 
   type Log = { at: number; items: ImportLogItem[] };
   type Result = { deleted: number; restored: number; activitiesDeleted: number; failed: string[] };
 
   const HOURS = [1, 3, 6, 24, 72];
+  const hoursLabel = (h: number) => (h < 24 ? `${h} hour${h === 1 ? '' : 's'}` : `${h / 24} day${h === 24 ? '' : 's'}`);
 
   let logs = $state<Log[]>([]);
   let hours = $state(3);
@@ -47,6 +54,8 @@
   const fmt = (s: ListStatus | undefined) => (s ? STATUS_LABEL[s] : '—');
   const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const beforeText = (b: UndoRow['before']) => (b ? `${fmt(b.status)}${b.progress != null ? ` · ${b.progress}` : ''}` : '');
+  const actionLabel = (r: UndoRow) =>
+    r.action === 'delete' ? 'remove from list' : r.action === 'keep' ? 'keep' : r.before ? `restore to ${beforeText(r.before)}` : 'restore (no earlier state)';
 
   async function preview(load: () => Promise<UndoRow[]>, src: NonNullable<typeof source>) {
     busy = true;
@@ -104,256 +113,129 @@
     rows = [];
     source = null;
   }
+
+  const H3 = 'text-muted-foreground text-xs font-semibold tracking-[0.08em] uppercase';
+  const NOTE = 'text-muted-foreground border-primary m-0 border-l-2 pl-2 text-xs';
 </script>
 
-<section class="pane">
+<section class="grid gap-4">
   <header>
-    <h2>Undo an import</h2>
-    <p class="muted">Roll back AniList changes made by a Crunchyroll import. Nothing changes until you review the list and click undo.</p>
+    <h2 class="mb-1 text-2xl font-bold tracking-[-0.02em]">Undo an import</h2>
+    <p class="text-muted-foreground m-0 max-w-[70ch]">Roll back AniList changes made by a Crunchyroll import. Nothing changes until you review the list and click undo.</p>
   </header>
 
-  <div class="sources">
-    <div class="box">
-      <h3>Recorded imports</h3>
-      {#if logs.length}
-        <ul class="rows">
-          {#each logs as log (log.at)}
-            <li>
-              <span class="t">{when(log.at)}</span>
-              <span class="muted">{log.items.length} {log.items.length === 1 ? 'entry' : 'entries'}</span>
-              <button class="btn" disabled={busy} onclick={() => reviewLog(log)}>Review undo</button>
-            </li>
-          {/each}
-        </ul>
-      {:else}
-        <p class="muted">No recorded imports. The last 5 imports are recorded here when you apply them.</p>
-      {/if}
-    </div>
+  <div class="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-3">
+    <Card.Root size="sm" class="content-start gap-2 shadow-none">
+      <Card.Header><Card.Title class={H3}>Recorded imports</Card.Title></Card.Header>
+      <Card.Content class="grid gap-2">
+        {#if logs.length}
+          <ul class="m-0 list-none p-0">
+            {#each logs as log (log.at)}
+              <li class="flex items-center gap-3 border-b py-1.5 last:border-b-0">
+                <span class="min-w-0 flex-1">{when(log.at)}</span>
+                <span class="text-muted-foreground">{log.items.length} {log.items.length === 1 ? 'entry' : 'entries'}</span>
+                <Button variant="outline" size="sm" disabled={busy} onclick={() => reviewLog(log)}>Review undo</Button>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="text-muted-foreground m-0">No recorded imports. The last 5 imports are recorded here when you apply them.</p>
+        {/if}
+      </Card.Content>
+    </Card.Root>
 
-    <div class="box">
-      <h3>By time window</h3>
-      <p class="muted">For imports made before recording existed. Finds every AniList list change in the window.</p>
-      <div class="ctl">
-        <label>
-          Changes in the last
-          <select bind:value={hours} disabled={busy}>
-            {#each HOURS as h}<option value={h}>{h < 24 ? `${h} hour${h === 1 ? '' : 's'}` : `${h / 24} day${h === 24 ? '' : 's'}`}</option>{/each}
-          </select>
-        </label>
-        <button class="btn" disabled={busy} onclick={scan}>Scan</button>
-      </div>
-      <p class="note">
-        Best guess: the "before" state is rebuilt from your activity history, so it can be wrong. It also picks up changes you made
-        by hand in that window. Check each row.
-      </p>
-    </div>
+    <Card.Root size="sm" class="content-start gap-2 shadow-none">
+      <Card.Header><Card.Title class={H3}>By time window</Card.Title></Card.Header>
+      <Card.Content class="grid gap-2">
+        <p class="text-muted-foreground m-0">For imports made before recording existed. Finds every AniList list change in the window.</p>
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="flex items-center gap-2">
+            <span id="undo-window-label">Changes in the last</span>
+            <Select.Root type="single" value={String(hours)} onValueChange={(v) => (hours = Number(v))} disabled={busy}>
+              <Select.Trigger aria-labelledby="undo-window-label">{hoursLabel(hours)}</Select.Trigger>
+              <Select.Content>
+                {#each HOURS as h (h)}<Select.Item value={String(h)} label={hoursLabel(h)} />{/each}
+              </Select.Content>
+            </Select.Root>
+          </span>
+          <Button variant="outline" disabled={busy} onclick={scan}>Scan</Button>
+        </div>
+        <p class={NOTE}>
+          Best guess: the "before" state is rebuilt from your activity history, so it can be wrong. It also picks up changes you made by hand in that
+          window. Check each row.
+        </p>
+      </Card.Content>
+    </Card.Root>
   </div>
 
-  {#if busy}<p class="status"><span class="spin"></span>{label || 'Working…'}</p>{/if}
-  {#if error}<p class="err">{error}</p>{/if}
+  {#if busy}<Busy {label} fallback="Working…" />{/if}
+  {#if error}<p class="text-destructive m-0">{error}</p>{/if}
 
   {#if result}
-    <div class="box result">
-      <p>
-        <span class="ok">Done.</span>
-        {result.deleted} removed · {result.restored} restored · {result.activitiesDeleted} activity posts deleted
-      </p>
-      {#if Array.isArray(result.failed) && result.failed.length}
-        <ul class="fails">
-          {#each result.failed as f}<li class="err">{f}</li>{/each}
-        </ul>
-      {/if}
-    </div>
+    <Card.Root size="sm" class="gap-2 shadow-none">
+      <Card.Content class="grid gap-2">
+        <p class="m-0">
+          <span class="text-success font-semibold">Done.</span>
+          {result.deleted} removed · {result.restored} restored · {result.activitiesDeleted} activity posts deleted
+        </p>
+        {#if Array.isArray(result.failed) && result.failed.length}
+          <ul class="m-0 list-disc pl-[18px]">
+            {#each result.failed as f, i (i)}<li class="text-destructive">{f}</li>{/each}
+          </ul>
+        {/if}
+      </Card.Content>
+    </Card.Root>
   {/if}
 
   {#if source}
     {#if source.kind === 'scan'}
-      <p class="note">Best-guess preview from the last {source.hours}h of activity. Review each row before undoing.</p>
+      <p class={NOTE}>Best-guess preview from the last {source.hours}h of activity. Review each row before undoing.</p>
     {/if}
     {#if rows.length}
-      <p class="muted summary">
+      <p class="text-muted-foreground m-0 [&_b]:text-foreground">
         {rows.length} entries · <b>{counts.delete}</b> remove · <b>{counts.restore}</b> restore · {counts.keep} keep
         {#if deleteActivities}· {counts.activities} activity posts{/if}
       </p>
-      <table>
-        <thead>
-          <tr><th></th><th>Title</th><th>Now</th><th>Action</th></tr>
-        </thead>
-        <tbody>
+      <Table.Root>
+        <Table.Header>
+          <Table.Row class="hover:bg-transparent">
+            <Table.Head class={H3}></Table.Head>
+            <Table.Head class={H3}>Title</Table.Head>
+            <Table.Head class={H3}>Now</Table.Head>
+            <Table.Head class={H3}>Action</Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {#each rows as r (r.mediaId)}
-            <tr class:off={r.action === 'keep'}>
-              <td>{#if r.cover}<img src={r.cover} alt="" />{/if}</td>
-              <td><a href={`https://anilist.co/anime/${r.mediaId}`} target="_blank" rel="noreferrer">{r.title}</a></td>
-              <td>
-                {#if r.current}{fmt(r.current.status)} · {r.current.progress}{:else}<span class="muted">not on list</span>{/if}
-              </td>
-              <td>
-                <select bind:value={r.action} disabled={busy}>
-                  <option value="delete" disabled={!r.current}>remove from list</option>
-                  <option value="restore" disabled={!r.current || !r.before}>
-                    {r.before ? `restore to ${beforeText(r.before)}` : 'restore (no earlier state)'}
-                  </option>
-                  <option value="keep">keep</option>
-                </select>
-                {#if r.note}<div class="muted">{r.note}</div>{/if}
-              </td>
-            </tr>
+            <Table.Row class={r.action === 'keep' ? 'opacity-50' : ''}>
+              <Table.Cell class="w-10">{#if r.cover}<img src={r.cover} alt="" class="block h-[42px] w-[30px] rounded object-cover" />{/if}</Table.Cell>
+              <Table.Cell class="whitespace-normal"><a href={`https://anilist.co/anime/${r.mediaId}`} target="_blank" rel="noreferrer">{r.title}</a></Table.Cell>
+              <Table.Cell>
+                {#if r.current}{fmt(r.current.status)} · {r.current.progress}{:else}<span class="text-muted-foreground">not on list</span>{/if}
+              </Table.Cell>
+              <Table.Cell class="whitespace-normal">
+                <Select.Root type="single" bind:value={() => r.action, (v) => (r.action = v as UndoRow['action'])} disabled={busy}>
+                  <Select.Trigger size="sm" aria-label="Action for {r.title}">{actionLabel(r)}</Select.Trigger>
+                  <Select.Content>
+                    <Select.Item value="delete" disabled={!r.current} label="remove from list" />
+                    <Select.Item value="restore" disabled={!r.current || !r.before} label={r.before ? `restore to ${beforeText(r.before)}` : 'restore (no earlier state)'} />
+                    <Select.Item value="keep" label="keep" />
+                  </Select.Content>
+                </Select.Root>
+                {#if r.note}<div class="text-muted-foreground mt-1">{r.note}</div>{/if}
+              </Table.Cell>
+            </Table.Row>
           {/each}
-        </tbody>
-      </table>
-      <div class="actions">
-        <label class="chk"><input type="checkbox" bind:checked={deleteActivities} disabled={busy} /> also delete activity posts</label>
-        <span class="grow"></span>
-        <button class="btn" disabled={busy} onclick={cancel}>Cancel</button>
-        <button class="btn primary" disabled={busy || !changeCount} onclick={apply}>Undo {changeCount} changes</button>
+        </Table.Body>
+      </Table.Root>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <label class="flex items-center gap-1.5"><Checkbox bind:checked={deleteActivities} disabled={busy} /> also delete activity posts</label>
+        <span class="flex-1"></span>
+        <Button variant="outline" disabled={busy} onclick={cancel}>Cancel</Button>
+        <Button disabled={busy || !changeCount} onclick={apply}>Undo {changeCount} changes</Button>
       </div>
     {:else}
-      <p class="muted">Nothing to undo{source.kind === 'scan' ? ' in that window' : ''}.</p>
+      <p class="text-muted-foreground m-0">Nothing to undo{source.kind === 'scan' ? ' in that window' : ''}.</p>
     {/if}
   {/if}
 </section>
-
-<style>
-  .pane {
-    display: grid;
-    gap: 16px;
-  }
-  h2 {
-    margin: 0 0 4px;
-    font-size: 24px;
-    letter-spacing: -0.02em;
-  }
-  h3 {
-    margin: 0 0 8px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-  p {
-    margin: 0;
-  }
-  header p {
-    max-width: 70ch;
-  }
-  .sources {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 12px;
-  }
-  .box {
-    display: grid;
-    gap: 8px;
-    align-content: start;
-    padding: 14px;
-    border-radius: 14px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-  }
-  .rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .rows li {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .rows li:last-child {
-    border-bottom: 0;
-  }
-  .rows .t {
-    flex: 1;
-    min-width: 0;
-  }
-  .ctl {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .note {
-    font-size: 12px;
-    color: var(--muted);
-    border-left: 2px solid var(--accent);
-    padding-left: 8px;
-  }
-  .summary b {
-    color: var(--text);
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th {
-    text-align: left;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    font-weight: 600;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--line);
-  }
-  td {
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--line);
-    vertical-align: middle;
-  }
-  td img {
-    width: 30px;
-    height: 42px;
-    object-fit: cover;
-    border-radius: 4px;
-    display: block;
-  }
-  tr.off td {
-    opacity: 0.5;
-  }
-  .actions {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .grow {
-    flex: 1;
-  }
-  .chk {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .fails {
-    margin: 0;
-    padding-left: 18px;
-  }
-  .status {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-  .spin {
-    width: 12px;
-    height: 12px;
-    border: 2px solid var(--muted);
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  .ok {
-    color: var(--ok);
-    font-weight: 600;
-  }
-  .err {
-    color: var(--err);
-  }
-</style>

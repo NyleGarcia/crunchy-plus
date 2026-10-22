@@ -22,6 +22,41 @@ export function normalize(s: string): string {
     .trim();
 }
 
+/** Strip season/part markers so "Foo Season 2" matches the CR series "Foo". */
+export function baseTitle(t: string): string {
+  return normalize(t)
+    .replace(/\b(season|part|cour)\s*\d+\b/g, '')
+    .replace(/\b\d+(st|nd|rd|th)\s+season\b/g, '')
+    .replace(/\b(final season|the final chapters?)\b/g, '')
+    .replace(/\s+(ii|iii|iv|v|vi)$/g, '')
+    .replace(/\s+\d+$/g, '')
+    .trim();
+}
+
+const SERIES_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
+
+/**
+ * The AniList entry to add when a Crunchyroll series card is marked "Plan to watch".
+ * A CR series spans every season, so the first season is the one to plan: among search hits whose
+ * title (english/romaji/synonym) equals the card title (full match first, then with season markers
+ * stripped), prefer TV formats, then the earliest year, then the lowest id. No match → null (never guess).
+ */
+export function pickPlanMedia(hits: AniMedia[], title: string): AniMedia | null {
+  const want = baseTitle(title);
+  if (!want) return null;
+  const titles = (m: AniMedia) => [m.title.english, m.title.romaji, ...(m.synonyms ?? [])].filter((t): t is string => !!t);
+  // A full-title match ("Steins;Gate") beats a base-title one ("Steins;Gate 0" with the 0 stripped).
+  const full = hits.filter((m) => titles(m).some((t) => normalize(t) === normalize(title)));
+  const exact = full.length ? full : hits.filter((m) => titles(m).some((t) => baseTitle(t) === want));
+  exact.sort(
+    (a, b) =>
+      Number(SERIES_FORMATS.has(b.format ?? 'TV')) - Number(SERIES_FORMATS.has(a.format ?? 'TV')) ||
+      (a.seasonYear ?? 9999) - (b.seasonYear ?? 9999) ||
+      a.id - b.id,
+  );
+  return exact[0] ?? null;
+}
+
 function bigrams(s: string): Map<string, number> {
   const m = new Map<string, number>();
   const t = s.replace(/\s/g, '');

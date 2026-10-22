@@ -1,7 +1,8 @@
+# CI: type-check, test, then build and zip the extension for chrome, edge, brave and firefox (main, dev, PRs).
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 jobs:
@@ -16,4 +17,25 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm run build
+
+  zip:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [chrome, edge, brave, firefox]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx wxt zip -b ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crunchy-plus-${{ matrix.target }}
+          path: .output/*.zip
+          include-hidden-files: true
+          retention-days: 14
