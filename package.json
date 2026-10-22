@@ -10,6 +10,10 @@
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
+    "zip:edge": "wxt zip -b edge",
+    "zip:brave": "wxt zip -b brave",
+    "zip:firefox": "wxt zip -b firefox",
+    "zip:all": "wxt zip && wxt zip -b edge && wxt zip -b brave && wxt zip -b firefox",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "postinstall": "wxt prepare"

@@ -1,0 +1,92 @@
+# Prerelease: every push to dev publishes a vX.Y.Z-devNNNN GitHub prerelease with zips for chrome, edge, brave and firefox; keeps the newest 10.
+name: Prerelease
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          version=$(RUN_NUMBER=${{ github.run_number }} bash scripts/next-prerelease.sh)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  assets:
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [chrome, edge, brave, firefox]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm version "$VERSION" --no-git-tag-version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+      - run: npx wxt zip -b ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crunchy-plus-${{ matrix.target }}
+          path: .output/*.zip
+          include-hidden-files: true
+          retention-days: 14
+
+  publish:
+    needs: [version, assets]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: zips
+          merge-multiple: true
+      - name: Create prerelease and upload zips
+        run: |
+          ls -l zips
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --prerelease --latest=false --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+          gh release upload "$TAG" zips/*.zip --clobber
+      - name: Prune old prereleases (keep newest 10)
+        run: |
+          gh release list --limit 200 --json tagName,isPrerelease,createdAt \
+            -q '[.[] | select(.isPrerelease and (.tagName | test("^v.*-dev")))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' \
+          | while read -r old; do
+              gh release delete "$old" --cleanup-tag -y
+            done
