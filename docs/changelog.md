@@ -1,12 +1,16 @@
 ---
 title: Changelog
 tags: [changelog]
-updated: 2026-10-11
+updated: 2026-10-15
 ---
 # Changelog
 
 ## Unreleased
+- Hub and popup rebuilt on shadcn-svelte (bits-ui) + Tailwind v4 with lucide icons: Tabs hub shell, Cards, Switches, Selects, Checkboxes, Tooltips, Collapsibles, a Command-based AniList candidate picker and Badge score pills. Same palette (brand orange), features, copy, shortcuts and deep links; `base.css` removed. Crunchyroll page UI (widget, Up next row, theme, badges) unchanged and still vanilla/scoped.
 - Import scan is incremental: watch history is read newest-first only until an already-cached entry, season episode lists are reused unless the season got new plays, and watchlist series lookups are cached (`local:scanCache.v1`, per profile). "Full rescan (ignore cache)" toggle on the profile confirm step.
+- Hide completed hides the card's grid slot instead of the bare card; on My Lists (history, watchlist), whose rows are virtualised and can't reflow, completed shows are dimmed (hover to see them) instead of leaving holes.
+- "+ Plan" button on Crunchyroll cards that aren't on your AniList: adds the show (first season, exact title match only) as Planning without leaving the page.
+- CI/CD matches RSI+: CI zips Chrome, Edge, Brave and Firefox builds on every push/PR; release-please cuts semver releases with all four zips (+ AMO sources zip); pushes to `dev` publish `vX.Y.Z-devNNNN` prereleases. Firefox manifest (gecko id, min 128); local builds show `X.Y.Z-dev (local <sha>)`.
 - Background → Crunchyroll tab ops skip discarded tabs and, on "Receiving end does not exist" (tab opened before the extension loaded), reload the tab and retry once instead of failing.
 
 ## 0.1.0 — 2026-10-08
