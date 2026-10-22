@@ -15,3 +15,7 @@ public/undo/
 *.pem
 .DS_Store
 coverage/
+
+# agent skill installs (npx skills) — local tooling, not source
+.agents/
+skills-lock.json
