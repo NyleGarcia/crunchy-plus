@@ -148,6 +148,7 @@ export type BgRequest =
   | { type: 'anilist:search'; q: string }
   | { type: 'anilist:list' }
   | { type: 'anilist:save'; mediaId: number; patch: { status?: ListStatus; progress?: number } }
+  | { type: 'anilist:plan'; seriesId: string; title: string }
   | { type: 'match:resolve'; key: string; input: MatchInput; force?: boolean }
   | { type: 'match:resolveMany'; items: { key: string; input: MatchInput }[]; force?: boolean }
   | { type: 'anilist:saveMany'; items: { mediaId: number; status?: ListStatus; progress?: number }[] }
@@ -174,6 +175,7 @@ export interface BgResponses {
   'anilist:search': AniMedia[];
   'anilist:list': [number, AniEntry][];
   'anilist:save': AniEntry;
+  'anilist:plan': { entry: AniEntry; media: AniMedia; existed: boolean };
   'match:resolve': MatchResult;
   'match:resolveMany': MatchResult[];
   'anilist:saveMany': (AniEntry | { error: string })[];

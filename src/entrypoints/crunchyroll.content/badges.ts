@@ -16,7 +16,8 @@
  */
 import { bg } from '@/lib/messages';
 import { getSettings } from '@/lib/settings';
-import { STATUS_LABEL, type AniListItem, type ListStatus, type SeasonInfo } from '@/lib/types';
+import { toast } from '@/lib/state.svelte';
+import { STATUS_LABEL, type AniEntry, type AniListItem, type AniMedia, type ListStatus, type SeasonInfo } from '@/lib/types';
 import { crSeriesItem } from '@/lib/settings';
 import { baseTitle, knownSeries, lastSeasonsError, seasonNumberOf, seasonOf, seriesSeasons } from './reverse';
 
@@ -189,19 +190,24 @@ function paint() {
     const isEpisode = /playable-card--/.test(card.className);
     if (isEpisode && onSeriesPage) continue;
     const id = seriesIdOf(card);
-    const state = id ? (index.get(id) ?? stateByTitle(card, id)) : undefined;
-    if (!id || !state) continue;
+    if (!id) continue;
+    const state = index.get(id) ?? stateByTitle(card, id);
     const art = card.querySelector<HTMLElement>(
       '[class*="browse-card__poster-wrapper--"], [class*="playable-card__thumbnail-wrapper--"]',
     );
     if (!art) continue;
     if (getComputedStyle(art).position === 'static') art.style.position = 'relative';
+    if (!state) {
+      // Not on your AniList: offer to add it as Planning right here.
+      if (showBadges) art.append(planButton(card, id));
+      continue;
+    }
     const pill = showBadges ? statusPill(state.best) : null;
     if (pill) art.append(pill);
 
     const hide = hideCompleted && state.allCompleted;
-    const slot = card.closest<HTMLElement>('[data-t="carousel-card-wrapper"], .collection-item, [class*="collection-item--"]') ?? card;
-    if (hide) slot.setAttribute(HIDDEN, 'completed');
+    const slot = slotOf(card);
+    if (hide) setHidden(slot, true);
     if (!pill && !hide) continue;
 
     const name = state.best.media.title.english ?? state.best.media.title.romaji ?? id;
@@ -215,7 +221,7 @@ function paint() {
             : f.newEps > 0
               ? `${f.newEps} episodes past your progress [${f.debug}]`
               : '';
-        if (why) slot.removeAttribute(HIDDEN);
+        if (why) setHidden(slot, false);
         record(id, name, why ? 'shown' : 'hidden', why);
       }
       if (!f || !pill) return;
@@ -242,6 +248,33 @@ function paint() {
       else if (f.newEps > 0) art.append(extraPill(`${f.newEps} to watch`));
     });
   }
+}
+
+/**
+ * The element to hide for a card: the row/grid slot that holds it. Known wrappers first; otherwise
+ * climb through single-child wrappers up to the grid/flex item (My Lists wraps every card in
+ * `.erc-my-lists-item`).
+ */
+function slotOf(card: HTMLElement): HTMLElement {
+  const known = card.closest<HTMLElement>('[data-t="carousel-card-wrapper"], .collection-item, [class*="collection-item--"]');
+  if (known) return known;
+  let el = card;
+  for (let i = 0; i < 4; i++) {
+    const parent = el.parentElement;
+    if (!parent || parent === document.body || parent.childElementCount !== 1) break;
+    if (/grid|flex/.test(getComputedStyle(parent).display)) break;
+    el = parent;
+  }
+  return el;
+}
+
+/** Hide/show a slot for "hide completed". */
+function setHidden(slot: HTMLElement, hidden: boolean) {
+  if (!hidden) return slot.removeAttribute(HIDDEN);
+  // My Lists (history, watchlist) virtualises rows: 4 fixed cells per absolutely positioned row, so
+  // a removed card leaves a hole and cards can't reflow across rows. Dim those instead (theme.css).
+  const virtual = /virtual-list-row/.test(slot.parentElement?.className ?? '');
+  slot.setAttribute(HIDDEN, virtual ? 'dimmed' : 'completed');
 }
 
 function freshness(id: string, state: SeriesState): Promise<Fresh | null> {
@@ -328,6 +361,62 @@ function extraPill(text: string): HTMLElement {
   el.title = 'Original-audio episodes on Crunchyroll you have not watched (dubs never count)';
   Object.assign(el.style, PILL, { bottom: '32px', background: '#ff7a1a' });
   return el;
+}
+
+/**
+ * "+ Plan" on a card that isn't on your AniList: adds the show's first season as Planning
+ * (background `anilist:plan`: exact-title search, never guesses) and swaps itself for the status pill.
+ */
+function planButton(card: HTMLElement, seriesId: string): HTMLElement {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.setAttribute(BADGE, '');
+  el.textContent = '+ Plan';
+  el.title = 'Add to your AniList as Planning';
+  Object.assign(el.style, PILL, {
+    bottom: '8px',
+    pointerEvents: 'auto',
+    cursor: 'pointer',
+    background: 'rgb(11 12 16 / 0.82)',
+    color: '#ff7a1a',
+    border: '1px solid rgb(255 122 26 / 0.7)',
+    backdropFilter: 'blur(6px)',
+    opacity: '0.85',
+  });
+  el.onmouseenter = () => (el.style.opacity = '1');
+  el.onmouseleave = () => (el.style.opacity = '0.85');
+  el.onclick = async (ev) => {
+    // The card is a link: keep the click from opening the show.
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (el.disabled) return;
+    const title = card.querySelector(
+      '[class*="browse-card__title--"], [class*="playable-card__show-title--"], a[data-t="series-title"]',
+    )?.textContent?.trim();
+    if (!title) return toast('Could not read this card’s title', 'err');
+    el.disabled = true;
+    el.textContent = 'Adding…';
+    try {
+      const r = await bg({ type: 'anilist:plan', seriesId, title });
+      const item = itemOf(r.media, r.entry);
+      index.set(seriesId, stateOf([item]));
+      el.replaceWith(statusPill(item));
+      const name = r.media.title.english ?? r.media.title.romaji ?? title;
+      toast(r.existed ? `${name} is already on your list (${STATUS_LABEL[r.entry.status]})` : `${name} added to Planning`);
+    } catch (e) {
+      el.disabled = false;
+      el.textContent = '+ Plan';
+      toast((e as Error).message, 'err');
+    }
+  };
+  // Keep CR's hover card from treating the button as part of the poster.
+  el.onmousedown = (ev) => ev.stopPropagation();
+  return el;
+}
+
+/** An AniList list item for a media just added/found via "+ Plan" (airing info unknown until the next list fetch). */
+function itemOf(media: AniMedia, entry: AniEntry): AniListItem {
+  return { ...entry, updatedAt: Math.floor(Date.now() / 1000), media: { ...media, status: null, nextAiringEpisode: null } };
 }
 
 function relTime(ms: number) {
