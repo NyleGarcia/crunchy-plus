@@ -3,6 +3,7 @@
   "description": "Crunchyroll, but better: sub/dub modes, modern UI, AniList sync + import",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "wxt",
