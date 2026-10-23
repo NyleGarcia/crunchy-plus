@@ -40,6 +40,8 @@ const SERIES_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
  * A CR series spans every season, so the first season is the one to plan: among search hits whose
  * title (english/romaji/synonym) equals the card title (full match first, then with season markers
  * stripped), prefer TV formats, then the earliest year, then the lowest id. No match → null (never guess).
+ * Two series with the same full title in different years (a remake: Hunter x Hunter 1999/2011, Fruits Basket
+ * 2001/2019, Shaman King 2001/2021) → null too: the card doesn't say which one, the widget picker does.
  */
 export function pickPlanMedia(hits: AniMedia[], title: string): AniMedia | null {
   const want = baseTitle(title);
@@ -47,10 +49,13 @@ export function pickPlanMedia(hits: AniMedia[], title: string): AniMedia | null 
   const titles = (m: AniMedia) => [m.title.english, m.title.romaji, ...(m.synonyms ?? [])].filter((t): t is string => !!t);
   // A full-title match ("Steins;Gate") beats a base-title one ("Steins;Gate 0" with the 0 stripped).
   const full = hits.filter((m) => titles(m).some((t) => normalize(t) === normalize(title)));
+  const series = (m: AniMedia) => SERIES_FORMATS.has(m.format ?? 'TV');
+  const fullSeries = full.filter(series);
+  if (new Set(fullSeries.map((m) => m.seasonYear ?? m.id)).size > 1) return null;
   const exact = full.length ? full : hits.filter((m) => titles(m).some((t) => baseTitle(t) === want));
   exact.sort(
     (a, b) =>
-      Number(SERIES_FORMATS.has(b.format ?? 'TV')) - Number(SERIES_FORMATS.has(a.format ?? 'TV')) ||
+      Number(series(b)) - Number(series(a)) ||
       (a.seasonYear ?? 9999) - (b.seasonYear ?? 9999) ||
       a.id - b.id,
   );

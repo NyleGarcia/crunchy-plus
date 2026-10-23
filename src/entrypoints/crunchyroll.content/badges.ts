@@ -177,7 +177,8 @@ const seriesIdOf = (card: Element) =>
     ?.match(/\/series\/([A-Z0-9]+)/i)?.[1];
 
 function paint() {
-  if (!index.size && !byTitle.size) return;
+  // An empty AniList still gets "+ Plan" buttons; without badges there is nothing to paint for it.
+  if (!index.size && !byTitle.size && !showBadges) return;
   // On a series page every episode card belongs to the show you opened; CR already marks them
   // "Watched", and show-level AniList state would mislabel individual episodes.
   const onSeriesPage = /\/series\//.test(location.pathname);
@@ -400,7 +401,8 @@ function planButton(card: HTMLElement, seriesId: string): HTMLElement {
       const r = await bg({ type: 'anilist:plan', seriesId, title });
       const item = itemOf(r.media, r.entry);
       index.set(seriesId, stateOf([item]));
-      el.replaceWith(statusPill(item));
+      // A repaint while the request ran may have replaced the button; swap whatever the card shows now.
+      (card.querySelector(`[${BADGE}]`) ?? el).replaceWith(statusPill(item));
       const name = r.media.title.english ?? r.media.title.romaji ?? title;
       toast(r.existed ? `${name} is already on your list (${STATUS_LABEL[r.entry.status]})` : `${name} added to Planning`);
     } catch (e) {

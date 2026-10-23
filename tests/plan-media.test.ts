@@ -37,8 +37,17 @@ describe('pickPlanMedia', () => {
     expect(pickPlanMedia(hits, 'Steins;Gate')?.id).toBe(1);
     expect(pickPlanMedia(hits, 'Steins;Gate 0')?.id).toBe(2);
   });
-  it('returns null without a title match instead of guessing', () => {
+  it('strips a trailing roman numeral like any other season marker', () => {
     expect(pickPlanMedia([media(1, 'Overlord')], 'Overlord IV')?.id).toBe(1);
+  });
+  it('returns null for a remake (same full title, different years) instead of guessing the old one', () => {
+    const hits = [media(1, 'Hunter x Hunter', { seasonYear: 1999 }), media(2, 'Hunter x Hunter', { seasonYear: 2011 })];
+    expect(pickPlanMedia(hits, 'Hunter x Hunter')).toBeNull();
+    // A movie or OVA sharing the title is not a remake of the series.
+    const withMovie = [media(1, 'Fruits Basket', { seasonYear: 2019 }), media(2, 'Fruits Basket', { seasonYear: 2022, format: 'MOVIE' })];
+    expect(pickPlanMedia(withMovie, 'Fruits Basket')?.id).toBe(1);
+  });
+  it('returns null without a title match instead of guessing', () => {
     expect(pickPlanMedia([media(1, 'Overlord')], 'Oshi no Ko')).toBeNull();
     expect(pickPlanMedia([], 'Anything')).toBeNull();
     expect(pickPlanMedia([media(1, 'Anything')], '')).toBeNull();

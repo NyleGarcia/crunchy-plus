@@ -36,6 +36,8 @@
     picking?: boolean;
     loadingCands?: boolean;
     q?: string;
+    /** The query the current candidates came from; Enter searches only when `q` differs from it. */
+    searched?: string;
   }
 
   interface Part {
@@ -403,6 +405,7 @@
   async function openPicker(r: Row) {
     r.picking = true;
     r.q ??= r.season.input.seasonTitle;
+    r.searched ??= r.q;
     if (r.match && !r.match.candidates.length && !r.loadingCands) {
       // Saved matches carry no alternatives — search again (nothing is saved by this).
       r.loadingCands = true;
@@ -426,6 +429,7 @@
       const merged = new Map<number, Ranked>(r.match.candidates.map((c) => [c.media.id, c]));
       for (const c of rank(r.season.input, Array.isArray(found) ? found : [])) merged.set(c.media.id, c);
       r.match.candidates = [...merged.values()].sort((a, b) => b.score - a.score);
+      r.searched = q;
     } finally {
       r.loadingCands = false;
     }
@@ -708,8 +712,9 @@
                         bind:value={r.q}
                         placeholder="Search AniList"
                         onkeydown={(e) => {
-                          // Enter searches AniList (as the old form did) instead of picking the highlighted candidate.
-                          if (e.key === 'Enter') {
+                          // Enter on a new query searches AniList (as the old form did); on an unchanged one it
+                          // bubbles to the Command root, which picks the highlighted candidate.
+                          if (e.key === 'Enter' && (r.q?.trim() ?? '') !== (r.searched ?? '')) {
                             e.preventDefault();
                             e.stopPropagation();
                             searchFor(r);

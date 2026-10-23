@@ -6,6 +6,7 @@ updated: 2026-10-22
 # Changelog
 
 ## Unreleased
+- "+ Plan" shows on an empty AniList too; a remake (same full title, different years) is left to the widget picker instead of planning the older series; Enter in the import candidate picker picks the highlighted row again (it only searches when the query changed).
 - Security workflow (CodeQL, npm audit, dependency review, gitleaks, manifest allowlist + web-ext lint), OpenSSF Scorecard, Dependabot, actions pinned by SHA, least-privilege tokens; releases get SLSA provenance + `SHA256SUMS` (`scripts/verify-release.sh`); release PR rolls this file's Unreleased section automatically; `SECURITY.md`. `dev` is the working branch.
 - Hub and popup rebuilt on shadcn-svelte (bits-ui) + Tailwind v4 with lucide icons: Tabs hub shell, Cards, Switches, Selects, Checkboxes, Tooltips, Collapsibles, a Command-based AniList candidate picker and Badge score pills. Same palette (brand orange), features, copy, shortcuts and deep links; `base.css` removed. Crunchyroll page UI (widget, Up next row, theme, badges) unchanged and still vanilla/scoped.
 - Import scan is incremental: watch history is read newest-first only until an already-cached entry, season episode lists are reused unless the season got new plays, and watchlist series lookups are cached (`local:scanCache.v1`, per profile). "Full rescan (ignore cache)" toggle on the profile confirm step.
