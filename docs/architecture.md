@@ -1,7 +1,7 @@
 ---
 title: Architecture
 tags: [architecture]
-updated: 2026-10-15
+updated: 2026-10-22
 ---
 # Architecture
 
@@ -97,7 +97,7 @@ updated: 2026-10-15
 - `prerelease.yml` (push to `dev`): `scripts/next-prerelease.sh` computes `<next>-dev<run:04>` (base from the release-please manifest, bump from conventional commits since the last stable `v*` tag), sets it in `package.json` in CI only, zips all four targets and publishes GitHub prerelease `v<next>-dev<run:04>` (`--prerelease --latest=false`), keeping the newest 10. Zero padding keeps GitHub's text sort in order.
 - Local builds (`wxt.config.ts` → `localVersionName`; not in CI, not on the tagged release commit) set Chromium `version_name` `<next>-dev (local <sha>[+])` (`+` = uncommitted changes), so a reloaded unpacked build shows it is newer than the last release.
 - Browser targets: `wxt zip -b chrome|edge|brave|firefox`. Edge and Brave are the Chromium MV3 build under their own name. The manifest `key` (pinned ID for the AniList redirect) only goes into non-production Chromium builds. Firefox builds MV2 with `browser_specific_settings.gecko` (id `crunchy-plus@nylegarcia.github.io`, `strict_min_version` 128 for the manifest `world: MAIN` cr-hook, `data_collection_permissions: none`). Not yet verified in a real Firefox; AniList OAuth there needs Firefox's own redirect URL registered with the AniList client, otherwise use the PIN fallback.
-- `dev` branch: not created yet. Until it exists `prerelease.yml` never fires; create it (and optionally make it the default branch) to switch to the RSI+ flow where day-to-day work lands on `dev` and `dev` → `main` PRs cut releases.
+- `dev` branch (created 2026-10-22, default): day-to-day work lands on `dev` (CI + Security + prerelease per push); `dev` → `main` PRs cut releases. `security.yml` / `scorecard.yml` / Dependabot / SLSA + SHA256SUMS mirror RSI+ — see `ci.md`.
 
 ## Hub styling (hub + popup)
 - **shadcn-svelte + Tailwind v4** (spec: `plans/specs/shadcn-migration.md`). `src/app.css` = Tailwind + `tw-animate-css` + `src/shadcn.css` (the CLI's variant layer, copied) + the dark-only token palette (brand `--primary #ff7a1a`, `--success`, `--warning`, legacy `--bg`/`--surface`/`--line`/`--text`/`--ok`/`--err` aliases). Imported **only** by `entrypoints/hub/main.ts` and `entrypoints/popup/main.ts`; Vite emits it in the shared `assets/plus-*.css` chunk.
