@@ -3,7 +3,10 @@ import { AUTO_ACCEPT, pickPlanMedia, queriesFor, rank, type MatchInput } from '@
 import { respond, type BgRequest, type BgResponses, type CrOp, type MatchResult, type Ranked, type UndoRow } from '@/lib/messages';
 import * as jev from '@/lib/jev';
 import { progressBySegment, segmentAt, single, splitSegments, type Segment } from '@/lib/segments';
-import { crSeriesItem, getSettings, matchesItem, segmentsItem, tokenItem, typesafeKeyItem, type ImportLogItem } from '@/lib/settings';
+import {
+  crSeriesItem, getSettings, listCacheItem, matchesItem, segmentsItem, splitCheckedItem, tokenItem, typesafeKeyItem, viewerItem,
+  type ImportLogItem,
+} from '@/lib/settings';
 import type { AniEntry, AniListItem, AniMedia } from '@/lib/types';
 
 export default defineBackground(() => {
@@ -13,15 +16,19 @@ export default defineBackground(() => {
   });
 });
 
-let viewerCache: { token: string; user: Awaited<ReturnType<typeof anilist.viewer>> } | null = null;
+/** In-flight Viewer request: a CR page load asks for the status twice at once. */
+let viewerReq: Promise<Awaited<ReturnType<typeof anilist.viewer>>> | null = null;
 
+/** Stored, not in memory: the service worker restarts after ~30 s idle and would ask AniList again on every page. */
 async function currentUser() {
   const token = await tokenItem.getValue();
   if (!token) return null;
-  if (viewerCache?.token === token) return viewerCache.user;
+  const cached = await viewerItem.getValue();
+  if (cached?.token === token) return cached.user;
   try {
-    const user = await anilist.viewer(token);
-    viewerCache = { token, user };
+    viewerReq ??= anilist.viewer(token).finally(() => (viewerReq = null));
+    const user = await viewerReq;
+    await viewerItem.setValue({ token, user });
     return user;
   } catch (e) {
     if (e instanceof anilist.AniListError && (e.status === 400 || e.status === 401)) {
@@ -54,11 +61,10 @@ async function login() {
   const token = new URLSearchParams(new URL(redirect!).hash.slice(1)).get('access_token');
   if (!token) throw new Error('AniList did not return a token.');
   await tokenItem.setValue(token);
-  viewerCache = null;
 }
 
-async function resolve(key: string, input: MatchInput, force = false): Promise<MatchResult> {
-  const [r] = await resolveMany([{ key, input }], force);
+async function resolve(key: string, input: MatchInput, force = false, listAge = LIST_TTL): Promise<MatchResult> {
+  const [r] = await resolveMany([{ key, input }], force, listAge);
   return r!;
 }
 
@@ -71,14 +77,18 @@ const SEARCH_BATCH = 12;
  * query first), each round batching SEARCH_BATCH searches per request and only retrying
  * seasons that are still unsure with their next query.
  */
-/** `force`: ignore saved matches and search again (to show alternatives); nothing is auto-saved then. */
-async function resolveMany(items: { key: string; input: MatchInput }[], force = false): Promise<MatchResult[]> {
+/**
+ * `force`: ignore saved matches and search again (to show alternatives); nothing is auto-saved then.
+ * `listAge`: saved matches on the viewer's list are read from the cached full list when younger than this
+ * (0 = always ask AniList, for writes that must see the current entry).
+ */
+async function resolveMany(items: { key: string; input: MatchInput }[], force = false, listAge = LIST_TTL): Promise<MatchResult[]> {
   const token = await tokenItem.getValue();
   const saved = force ? {} : await matchesItem.getValue();
   const results = new Map<string, MatchResult>();
 
   const cachedIds = [...new Set(items.map((i) => saved[i.key]).filter((id): id is number => !!id))];
-  const cached = await anilist.mediaMany(cachedIds, token);
+  const cached = await mediaById(cachedIds, token, listAge);
   for (const { key } of items) {
     const id = saved[key];
     if (id === 0) results.set(key, { key, mediaId: 0, media: null, candidates: [], score: null, source: 'saved' });
@@ -120,7 +130,7 @@ async function resolveMany(items: { key: string; input: MatchInput }[], force = 
   }
   await consultJev(items, results, force ? null : learned);
   if (Object.keys(learned).length) await matchesItem.setValue({ ...(await matchesItem.getValue()), ...learned });
-  await attachSegments(items, results, token, !force);
+  await attachSegments(items, results, token, !force, listAge);
   return items.map((i) => results.get(i.key)!);
 }
 
@@ -135,8 +145,6 @@ async function requireToken() {
 }
 
 async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
-  // Any AniList write makes the cached full list stale.
-  if (['anilist:save', 'anilist:plan', 'anilist:saveMany', 'sync:episode', 'undo:apply'].includes(msg.type)) listCache = null;
   switch (msg.type) {
     case 'anilist:status':
       return { user: await currentUser(), redirectUrl: browser.identity.getRedirectURL() };
@@ -146,48 +154,51 @@ async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
     case 'anilist:setToken': {
       // PIN flow fallback: user pastes the token AniList shows at /api/v2/oauth/pin.
       const token = msg.token.trim();
+      let user;
       try {
-        await anilist.viewer(token);
+        user = await anilist.viewer(token);
       } catch {
         throw new Error('AniList rejected that token — copy the whole thing from the PIN page.');
       }
       await tokenItem.setValue(token);
-      viewerCache = null;
+      await viewerItem.setValue({ token, user });
       return { ok: true };
     }
     case 'anilist:logout':
       await tokenItem.setValue(null);
-      viewerCache = null;
+      await Promise.all([viewerItem.setValue(null), listCacheItem.setValue(null)]);
       return { ok: true };
     case 'anilist:search':
       return anilist.search(msg.q, await tokenItem.getValue());
-    case 'anilist:list': {
-      const token = await requireToken();
-      const user = await currentUser();
-      if (!user) throw new Error('Not connected to AniList.');
-      return [...(await anilist.myList(token, user.id))];
+    case 'anilist:list':
+      // Import start: always fresh. Also refills the full-list cache, so its matching reads media from it.
+      return (await fullList(0)).map((e) => [e.mediaId, toEntry(e)] as [number, AniEntry]);
+    case 'anilist:save': {
+      const entry = await anilist.saveEntry(await requireToken(), msg.mediaId, msg.patch);
+      await patchList([entry]);
+      return entry;
     }
-    case 'anilist:save':
-      return anilist.saveEntry(await requireToken(), msg.mediaId, msg.patch);
     case 'anilist:plan': {
-      // "+ Plan" on a Crunchyroll card: find the show's first season on AniList and add it as Planning.
+      // "+ Plan" on a Crunchyroll card (or the series-page quick bar): find the show's first season on AniList and add it.
       const token = await requireToken();
       const media = pickPlanMedia(await anilist.search(msg.title, token), msg.title);
       if (!media) throw new Error(`No exact AniList match for "${msg.title}" — open an episode and pick it in the Crunchy+ widget.`);
       const cur = await crSeriesItem.getValue();
       if (!cur[media.id]) await crSeriesItem.setValue({ ...cur, [media.id]: msg.seriesId });
       if (media.mediaListEntry) return { entry: media.mediaListEntry, media, existed: true };
-      const entry = await anilist.saveEntry(token, media.id, { status: 'PLANNING' });
+      const entry = await anilist.saveEntry(token, media.id, { status: msg.status ?? 'PLANNING' });
+      await patchList([entry]);
       return { entry, media, existed: false };
     }
     case 'match:resolve':
       return resolve(msg.key, msg.input, msg.force);
     case 'match:resolveMany':
       return resolveMany(msg.items, msg.force);
-    case 'anilist:saveMany':
-      return (await anilist.saveMany(await requireToken(), msg.items)).map((r) =>
-        r instanceof Error ? { error: r.message } : r,
-      );
+    case 'anilist:saveMany': {
+      const saved = await anilist.saveMany(await requireToken(), msg.items);
+      await patchList(saved.filter((r): r is AniEntry => !(r instanceof Error)));
+      return saved.map((r) => (r instanceof Error ? { error: r.message } : r));
+    }
     case 'jev:choose': {
       const key = await typesafeKeyItem.getValue();
       if (!key) throw new Error('Add your TypeSafe API key in the Crunchy+ popup to use Jev.');
@@ -207,7 +218,7 @@ async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
     case 'match:split': {
       // User asked to split this season across the match and its AniList sequels.
       const token = await tokenItem.getValue();
-      const head = (await anilist.mediaMany([msg.mediaId], token)).get(msg.mediaId);
+      const head = (await mediaById([msg.mediaId], token, LIST_TTL)).get(msg.mediaId);
       const segs = head && msg.input.seasonEpisodes ? await detectSplit(head, msg.input.seasonEpisodes, token, true) : null;
       if (!segs) throw new Error("Couldn't find AniList sequels whose episodes add up to this Crunchyroll season.");
       await setSegments(msg.key, segs);
@@ -215,20 +226,14 @@ async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
     }
     case 'sync:episode':
       return syncEpisode(msg.np);
-    case 'anilist:listFull': {
-      const token = await requireToken();
-      const user = await currentUser();
-      if (!user) throw new Error('Not connected to AniList.');
-      if (!msg.fresh && listCache && listCache.user === user.id && Date.now() - listCache.at < 5 * 60e3) return listCache.items;
-      const items = await anilist.myListFull(token, user.id);
-      listCache = { user: user.id, at: Date.now(), items };
-      return items;
-    }
+    case 'anilist:listFull':
+      return fullList(msg.fresh ? 0 : LIST_TTL);
     case 'undo:scan':
       return undoScan(msg.since);
     case 'undo:fromLog':
       return undoFromLog(msg.log);
     case 'undo:apply':
+      await listCacheItem.setValue(null);
       return undoApply(msg.rows, msg.deleteActivities);
     case 'cr:op':
       return crTabOp(msg.op, msg.args);
@@ -243,13 +248,14 @@ async function handle(msg: BgRequest): Promise<BgResponses[BgRequest['type']]> {
 
 async function syncEpisode(np: Extract<BgRequest, { type: 'sync:episode' }>['np']) {
   const key = `${np.seriesId}|${np.seasonId}`;
+  // listAge 0: the save below must see the entry as AniList has it now.
   const match = await resolve(key, {
     seriesId: np.seriesId,
     seriesTitle: np.seriesTitle,
     seasonTitle: np.seasonTitle,
     seasonNumber: np.seasonNumber,
     seasonEpisodes: np.seasonEpisodes,
-  });
+  }, false, 0);
   if (!match.mediaId || !match.media) {
     return { match, entry: null, changed: false, reason: match.mediaId === 0 ? 'disabled' : 'unmatched' };
   }
@@ -266,13 +272,67 @@ async function syncEpisode(np: Extract<BgRequest, { type: 'sync:episode' }>['np'
     // live: you're watching it now, so a Paused/Dropped entry resumes to Watching.
     const plan = anilist.planUpdate(current, progress, media?.episodes ?? null, 'CURRENT', { live: true });
     const entry = plan ? await anilist.saveEntry(token, mediaId, plan) : current;
+    if (plan && entry) await patchList([entry]);
     changed ||= !!plan;
     if (mediaId === here?.mediaId) shown = entry;
   }
   return { match, entry: shown, changed, reason: changed ? undefined : 'up-to-date' };
 }
 
-let listCache: { user: number; at: number; items: AniListItem[] } | null = null;
+const LIST_TTL = 5 * 60e3;
+let listReq: Promise<AniListItem[]> | null = null;
+
+const toEntry = (e: AniListItem): AniEntry => ({ id: e.id, mediaId: e.mediaId, status: e.status, progress: e.progress, score: e.score, createdAt: e.createdAt });
+
+/** The viewer's full list, from storage when younger than `maxAge` (0 = refetch). Concurrent callers share one request. */
+async function fullList(maxAge: number): Promise<AniListItem[]> {
+  const token = await requireToken();
+  const user = await currentUser();
+  if (!user) throw new Error('Not connected to AniList.');
+  const c = await listCacheItem.getValue();
+  if (maxAge > 0 && c?.user === user.id && Date.now() - c.at < maxAge) return c.items;
+  listReq ??= anilist
+    .myListFull(token, user.id)
+    .then(async (items) => {
+      await listCacheItem.setValue({ user: user.id, at: Date.now(), items });
+      return items;
+    })
+    .finally(() => (listReq = null));
+  return listReq;
+}
+
+/** Cached list as media id -> media with the viewer's entry; no request, null when missing or older than `maxAge`. */
+async function listedMedia(maxAge: number): Promise<Map<number, AniMedia> | null> {
+  if (maxAge <= 0) return null;
+  const c = await listCacheItem.getValue();
+  if (!c || Date.now() - c.at >= maxAge || c.user !== (await viewerItem.getValue())?.user.id) return null;
+  return new Map(c.items.map((e) => [e.mediaId, { ...e.media, mediaListEntry: toEntry(e) }]));
+}
+
+/** Media by id: listed ones from the cached list (`maxAge`), the rest in mediaMany's batches of 50. */
+async function mediaById(ids: number[], token: string | null, maxAge: number): Promise<Map<number, AniMedia>> {
+  const listed = await listedMedia(maxAge);
+  const out = new Map<number, AniMedia>();
+  const missing: number[] = [];
+  for (const id of ids) {
+    const m = listed?.get(id);
+    if (m) out.set(id, m);
+    else missing.push(id);
+  }
+  if (missing.length) for (const [id, m] of await anilist.mediaMany(missing, token)) out.set(id, m);
+  return out;
+}
+
+/** Apply our own saves to the cached list instead of dropping it; an entry it doesn't hold yet (new show) drops it. */
+async function patchList(entries: AniEntry[]) {
+  const c = await listCacheItem.getValue();
+  if (!c || !entries.length) return;
+  const byId = new Map(c.items.map((e) => [e.mediaId, e]));
+  if (entries.some((e) => !byId.has(e.mediaId))) return listCacheItem.setValue(null);
+  const now = Math.floor(Date.now() / 1000);
+  for (const e of entries) Object.assign(byId.get(e.mediaId)!, { id: e.id, status: e.status, progress: e.progress, score: e.score, updatedAt: now });
+  await listCacheItem.setValue(c);
+}
 
 /** Resolve once `tabId` finishes loading. */
 function tabLoaded(tabId: number): Promise<void> {
@@ -470,18 +530,22 @@ async function attachSegments(
   results: Map<string, MatchResult>,
   token: string | null,
   learn: boolean,
+  listAge = LIST_TTL,
 ) {
-  const saved = await segmentsItem.getValue();
+  const [saved, checked] = await Promise.all([segmentsItem.getValue(), splitCheckedItem.getValue()]);
   const learned: Record<string, Segment[]> = {};
+  const noSplit: Record<string, number> = {};
   const segsFor = new Map<MatchResult, Segment[]>();
   for (const { key, input } of items) {
     const r = results.get(key);
     if (!r?.mediaId || !r.media) continue;
     let segs = saved[key];
-    if (!segs && learn && input.seasonEpisodes) {
+    // A season checked at this episode count with no split found isn't walked again (sequelChain = up to 4 requests).
+    if (!segs && learn && input.seasonEpisodes && checked[key] !== input.seasonEpisodes) {
       try {
         segs = (await detectSplit(r.media, input.seasonEpisodes, token)) ?? undefined;
         if (segs) learned[key] = segs;
+        else noSplit[key] = input.seasonEpisodes;
       } catch (e) {
         console.warn('[Crunchy+] split detection', e);
       }
@@ -491,9 +555,10 @@ async function attachSegments(
   }
   // One request for every segment's media (with the viewer's list entries).
   const ids = [...new Set([...segsFor.values()].flat().map((s) => s.mediaId))];
-  const media = ids.length ? await anilist.mediaMany(ids, token) : new Map<number, AniMedia>();
+  const media = ids.length ? await mediaById(ids, token, listAge) : new Map<number, AniMedia>();
   for (const [r, segs] of segsFor) {
     r.segments = segs.map((seg) => ({ seg, media: media.get(seg.mediaId) ?? (seg.mediaId === r.mediaId ? r.media : null) }));
   }
   if (Object.keys(learned).length) await segmentsItem.setValue({ ...(await segmentsItem.getValue()), ...learned });
+  if (Object.keys(noSplit).length) await splitCheckedItem.setValue({ ...(await splitCheckedItem.getValue()), ...noSplit });
 }

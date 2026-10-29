@@ -39,6 +39,8 @@ const PROGRESS_COLOR = {
 const BADGE = 'data-crunchyplus-badge';
 const HIDDEN = 'data-crunchyplus-hidden';
 const DONE = 'data-crunchyplus-seen';
+/** The copy of "+ Plan" put on top of CR's hover card. */
+const LIFTED = 'data-crunchyplus-lifted';
 
 interface SeriesState {
   /** Most actionable entry; among equals, the latest season. Drives the pill. */
@@ -91,10 +93,36 @@ const queue: (() => void)[] = [];
 const later = (a: AniListItem, b: AniListItem) =>
   seasonNumberOf(a) - seasonNumberOf(b) || (a.completedAt?.year ?? 0) - (b.completedAt?.year ?? 0) || a.updatedAt - b.updatedAt;
 
+/** Build `index` / `byTitle` from the (cached) AniList list; shared by the badges and the series-page quick bar. */
+let indexReady: Promise<void> | null = null;
+const ensureIndex = () => (indexReady ??= loadIndex().catch((e) => ((indexReady = null), Promise.reject(e))));
+
+/** The show's most actionable AniList entry (null = not on your list), for the series-page quick bar. */
+export async function seriesEntry(id: string): Promise<AniListItem | null> {
+  await ensureIndex();
+  return index.get(id)?.best ?? null;
+}
+
 export async function startBadges() {
   const s = await getSettings();
   hideCompleted = s.hideCompleted;
   showBadges = s.badges;
+  indexReady = loadIndex();
+  await indexReady;
+  freshCache.clear();
+  reset();
+  paint();
+  if (!observer) {
+    let timer = 0;
+    observer = new MutationObserver(() => {
+      clearTimeout(timer);
+      timer = window.setTimeout(paint, 250);
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+}
+
+async function loadIndex() {
   const entries = await bg({ type: 'anilist:listFull' });
   const series = await knownSeries(entries);
   const grouped = new Map<string, AniListItem[]>();
@@ -108,17 +136,6 @@ export async function startBadges() {
     for (const t of new Set([e.media.title.english, e.media.title.romaji].filter((x): x is string => !!x).map(baseTitle))) {
       if (t) byTitle.set(t, [...(byTitle.get(t) ?? []), e]);
     }
-  }
-  freshCache.clear();
-  reset();
-  paint();
-  if (!observer) {
-    let timer = 0;
-    observer = new MutationObserver(() => {
-      clearTimeout(timer);
-      timer = window.setTimeout(paint, 250);
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 }
 
@@ -177,7 +194,8 @@ const seriesIdOf = (card: Element) =>
     ?.match(/\/series\/([A-Z0-9]+)/i)?.[1];
 
 function paint() {
-  if (!index.size && !byTitle.size) return;
+  // An empty AniList still gets "+ Plan" buttons; without badges there is nothing to paint for it.
+  if (!index.size && !byTitle.size && !showBadges) return;
   // On a series page every episode card belongs to the show you opened; CR already marks them
   // "Watched", and show-level AniList state would mislabel individual episodes.
   const onSeriesPage = /\/series\//.test(location.pathname);
@@ -199,7 +217,11 @@ function paint() {
     if (getComputedStyle(art).position === 'static') art.style.position = 'relative';
     if (!state) {
       // Not on your AniList: offer to add it as Planning right here.
-      if (showBadges) art.append(planButton(card, id));
+      if (showBadges) {
+        const btn = planButton(card, id);
+        art.append(btn);
+        liftOnHover(card, btn, () => planButton(card, id));
+      }
       continue;
     }
     const pill = showBadges ? statusPill(state.best) : null;
@@ -281,7 +303,10 @@ function freshness(id: string, state: SeriesState): Promise<Fresh | null> {
   let p = freshCache.get(id);
   if (!p) {
     p = limited(async () => {
-      const seasons = await seriesSeasons(id);
+      let seasons = await seriesSeasons(id);
+      // Fewer out than you've watched = the cached count is stale (a new episode since): read CR again once.
+      const behind = async () => ((await seasonOf(state.best, id, seasons!))?.out ?? Infinity) < state.best.progress;
+      if (seasons?.length && (await behind())) seasons = await seriesSeasons(id, true);
       if (!seasons?.length) {
         if (seasons) console.warn('[Crunchy+] no seasons with episodes for', id);
         return null;
@@ -292,7 +317,18 @@ function freshness(id: string, state: SeriesState): Promise<Fresh | null> {
         if (s) mine.push(s);
       }
       const bestSeason = await seasonOf(state.best, id, seasons);
-      const out = bestSeason?.out ?? null;
+      if (bestSeason && bestSeason.out < state.best.progress)
+        console.warn(
+          '[Crunchy+] fewer episodes out than watched:',
+          state.best.media.title.english ?? state.best.media.title.romaji,
+          JSON.stringify({
+            aniList: { id: state.best.mediaId, progress: state.best.progress, episodes: state.best.media.episodes },
+            matched: bestSeason,
+            crSeasons: seasons.map(({ id, number, title, out, main, dropped }) => ({ id, number, title, out, main, dropped })),
+          }),
+        );
+      // Still fewer (dub-only or early-access episodes CR's filter drops): you've seen them, so they're out.
+      const out = bestSeason ? Math.max(bestSeason.out, state.best.progress) : null;
       const top = Math.max(0, ...mine.map((s) => s.number));
       const fmt = (s: SeasonInfo) => `S${s.number}${s.main === false ? '(extra)' : ''} "${s.title ?? s.id}" ${s.out} out`;
       return {
@@ -400,7 +436,9 @@ function planButton(card: HTMLElement, seriesId: string): HTMLElement {
       const r = await bg({ type: 'anilist:plan', seriesId, title });
       const item = itemOf(r.media, r.entry);
       index.set(seriesId, stateOf([item]));
-      el.replaceWith(statusPill(item));
+      // A repaint while the request ran may have replaced the button; swap whatever the card shows now.
+      (card.querySelector(`[${BADGE}]:not([${LIFTED}])`) ?? el).replaceWith(statusPill(item));
+      if (el.hasAttribute(LIFTED)) el.remove();
       const name = r.media.title.english ?? r.media.title.romaji ?? title;
       toast(r.existed ? `${name} is already on your list (${STATUS_LABEL[r.entry.status]})` : `${name} added to Planning`);
     } catch (e) {
@@ -414,9 +452,37 @@ function planButton(card: HTMLElement, seriesId: string): HTMLElement {
   return el;
 }
 
-/** An AniList list item for a media just added/found via "+ Plan" (airing info unknown until the next list fetch). */
+/**
+ * CR's hover card covers the whole poster (and our "+ Plan") on mouseover. Whatever ends up on top of the button is
+ * found by hit test — no CR class names — and gets its own copy, bottom-right, clear of CR's play/watchlist icons.
+ */
+function liftOnHover(card: HTMLElement, btn: HTMLElement, make: () => HTMLElement) {
+  card.addEventListener('mouseenter', () =>
+    window.setTimeout(() => {
+      if (!btn.isConnected) return;
+      const r = btn.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!hit || btn.contains(hit) || hit.closest(`[${LIFTED}]`)) return;
+      // Climb to the root of the covering layer: the last ancestor that doesn't also hold the button.
+      let layer: Element = hit;
+      while (layer.parentElement && layer.parentElement !== document.body && !layer.parentElement.contains(btn)) layer = layer.parentElement;
+      if (!(layer instanceof HTMLElement) || layer.querySelector(`[${LIFTED}]`)) return;
+      if (getComputedStyle(layer).position === 'static') layer.style.position = 'relative';
+      const top = make();
+      top.setAttribute(LIFTED, '');
+      Object.assign(top.style, { left: 'auto', right: '8px', bottom: '12px', zIndex: '10', opacity: '1' });
+      layer.append(top);
+    }, 200),
+  );
+}
+
+/** An AniList list item for a media just added/found via "+ Plan". */
 function itemOf(media: AniMedia, entry: AniEntry): AniListItem {
-  return { ...entry, updatedAt: Math.floor(Date.now() / 1000), media: { ...media, status: null, nextAiringEpisode: null } };
+  return {
+    ...entry,
+    updatedAt: Math.floor(Date.now() / 1000),
+    media: { ...media, status: null, nextAiringEpisode: media.nextAiringEpisode ?? null },
+  };
 }
 
 function relTime(ms: number) {

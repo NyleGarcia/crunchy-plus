@@ -4,6 +4,7 @@
   import type { Mode } from '@/lib/types';
   import Segmented from '@/components/Segmented.svelte';
   import Hint from '@/components/Hint.svelte';
+  import { HOTKEY_HELP } from '@/lib/quick';
   import * as Card from '@/components/ui/card';
   import * as Collapsible from '@/components/ui/collapsible';
   import * as Select from '@/components/ui/select';
@@ -171,6 +172,20 @@
                 oninput={(e) => set('syncThreshold', Number(e.currentTarget.value))}
               />
             </label>
+            <label class={LINE}>
+              Open shows on the newest season
+              <Switch checked={s.latestSeason} onCheckedChange={(v) => set('latestSeason', v)} />
+            </label>
+            <label class={LINE}>
+              Quick bar on episode pages
+              <Switch checked={s.quickBar} onCheckedChange={(v) => set('quickBar', v)} />
+            </label>
+            <Hint class="block" text={HOTKEY_HELP}>
+              <label class={LINE}>
+                Hotkeys on episode pages
+                <Switch checked={s.hotkeys} onCheckedChange={(v) => set('hotkeys', v)} />
+              </label>
+            </Hint>
             <label class={LINE}>
               Auto-sync AniList → Crunchyroll
               <Switch checked={s.autoExport} onCheckedChange={(v) => set('autoExport', v)} />

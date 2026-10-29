@@ -5,12 +5,15 @@ on:
     branches: [main, dev]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -26,14 +29,14 @@ jobs:
       matrix:
         target: [chrome, edge, brave, firefox]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npx wxt zip -b ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: crunchy-plus-${{ matrix.target }}
           path: .output/*.zip

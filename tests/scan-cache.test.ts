@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isKnown, knownKeys, mergeHistory, toPlay, trimEpisode, type PlayLike } from '@/lib/scan-cache';
+import { mergeHistory, seenBefore, toPlay, trimEpisode, type PlayLike } from '@/lib/scan-cache';
 import type { CREpisode } from '@/lib/types';
 
 const ep = (id: string, extra: Partial<CREpisode['episode_metadata']> = {}): CREpisode => ({
@@ -55,10 +55,11 @@ describe('mergeHistory', () => {
     expect(changed).toEqual(new Set(['e5']));
   });
 
-  it('isKnown matches on episode id + date', () => {
-    const keys = knownKeys(cached);
-    expect(isKnown(keys, play('e2', '2026-10-02'))).toBe(true);
-    expect(isKnown(keys, play('e2', '2026-10-08'))).toBe(false);
-    expect(isKnown(keys, play('e9', '2026-10-02'))).toBe(false);
+  it('seenBefore stops at the newest cached play date', () => {
+    const known = seenBefore(cached)!;
+    expect(known(play('e9', '2026-10-03'))).toBe(true);
+    expect(known(play('e2', '2026-10-02'))).toBe(true);
+    expect(known(play('e2', '2099-01-01'))).toBe(false);
+    expect(seenBefore([])).toBeUndefined();
   });
 });

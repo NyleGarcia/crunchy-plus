@@ -64,6 +64,7 @@ const MEDIA_FIELDS = `
   coverImage { medium large extraLarge color }
   popularity
   externalLinks { site url }
+  nextAiringEpisode { episode airingAt }
 `;
 
 export async function viewer(token: string) {
@@ -236,8 +237,8 @@ export async function saveMany(token: string, items: SaveItem[]): Promise<(AniEn
 export async function myListFull(token: string, userId: number): Promise<AniListItem[]> {
   const d = await gql<{ MediaListCollection: { lists: { entries: AniListItem[] }[] } }>(
     `query ($userId: Int) { MediaListCollection(userId: $userId, type: ANIME) {
-      lists { entries { id mediaId status progress score updatedAt completedAt { year month day }
-        media { ${MEDIA_FIELDS} status nextAiringEpisode { episode airingAt } } } }
+      lists { entries { id mediaId status progress score createdAt updatedAt completedAt { year month day }
+        media { ${MEDIA_FIELDS} status } } }
     } }`,
     { userId },
     token,

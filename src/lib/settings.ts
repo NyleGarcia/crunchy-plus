@@ -2,7 +2,7 @@ import { storage } from '#imports';
 import type { ScrapedSeason, UpNextItem } from './messages';
 import type { ScanCache } from './scan-cache';
 import type { Segment } from './segments';
-import type { ListStatus, Mode, SeasonInfo } from './types';
+import type { AniListItem, ListStatus, Mode, SeasonInfo } from './types';
 
 /** One-click presets for common rows people hide. */
 export const ROW_PRESETS = ['Crunchyroll Manga', 'Recent English Dubs', 'New to Anime? Start Here!'];
@@ -55,6 +55,12 @@ export interface Settings {
   jevEnabled: boolean;
   /** Jev probability needed to accept its pick without asking. */
   jevAccept: number;
+  /** Alt+Shift list hotkeys on Crunchyroll episode pages (lib/quick.ts). */
+  hotkeys: boolean;
+  /** Quick bar next to the widget pill on episode pages: ±1 episode, status, next-episode countdown. */
+  quickBar: boolean;
+  /** Series pages open on the newest season instead of season 1 / the last one watched (season-pick.ts). */
+  latestSeason: boolean;
 }
 
 export const DEFAULTS: Settings = {
@@ -69,6 +75,9 @@ export const DEFAULTS: Settings = {
   compactHero: false,
   hiddenRows: [],
   upNextRow: true,
+  hotkeys: true,
+  quickBar: true,
+  latestSeason: true,
   hideCompleted: false,
   upNextSort: 'recent',
   exportWatchlist: ['PLANNING', 'CURRENT'],
@@ -85,6 +94,15 @@ export const settingsItem = storage.defineItem<Settings>('sync:settings', { fall
 /** TypeSafe API key — local storage only (never synced), read only by the background. */
 export const typesafeKeyItem = storage.defineItem<string | null>('local:typesafeKey', { fallback: null });
 export const tokenItem = storage.defineItem<string | null>('local:anilistToken', { fallback: null });
+/** AniList viewer for the stored token, so a service-worker restart doesn't ask AniList who we are again. */
+export const viewerItem = storage.defineItem<{ token: string; user: { id: number; name: string; avatar: { medium: string } } } | null>(
+  'local:anilistViewer',
+  { fallback: null },
+);
+/** Full AniList list with media (badges, Up next, export); patched in place after our own writes. */
+export const listCacheItem = storage.defineItem<{ user: number; at: number; items: AniListItem[] } | null>('local:anilistList.v1', {
+  fallback: null,
+});
 /** AniList media id -> CR series id. Legacy '' entries (old permanent misses) are ignored and re-searched. */
 export const crSeriesItem = storage.defineItem<Record<number, string>>('local:crSeries', { fallback: {} });
 /** Per AniList media id: CR series title the search picked (for previews) or when a clean search found nothing. */
@@ -109,7 +127,7 @@ export interface ScanSnapshot {
 /** Last import scan, for replaying/diffing after code or setting changes. */
 export const lastScanItem = storage.defineItem<ScanSnapshot | null>('local:lastScan', { fallback: null });
 /** seriesId -> original-audio seasons with released episode counts, checked at `at` (ms). */
-export const crSeasonsItem = storage.defineItem<Record<string, { at: number; seasons: SeasonInfo[] }>>('local:crSeasons.v4', { fallback: {} }); // v4: tolerant original-audio check
+export const crSeasonsItem = storage.defineItem<Record<string, { at: number; seasons: SeasonInfo[] }>>('local:crSeasons.v5', { fallback: {} }); // v5: dub-listed seasons counted via their original version
 /** Cached Up next list for the home-page row (rebuilt after 15 min). */
 export const upNextCacheItem = storage.defineItem<{ at: number; items: UpNextItem[] } | null>('local:upNextCache.v4', { fallback: null }); // v4: lastWatched from working history query
 export const lastExportItem = storage.defineItem<number>('local:lastExport', { fallback: 0 });
@@ -120,6 +138,8 @@ export const lastExportCheckItem = storage.defineItem<number>('local:lastExportC
 /** seasonKey -> AniList media id (0 = user said "not on AniList / don't sync"). */
 /** seasonKey -> how CR episodes map onto several AniList entries (split parts / continuing entry). */
 export const segmentsItem = storage.defineItem<Record<string, Segment[]>>('local:segments', { fallback: {} });
+/** seasonKey -> CR episode count a split check found nothing for (re-checked only when the season grows). */
+export const splitCheckedItem = storage.defineItem<Record<string, number>>('local:splitChecked', { fallback: {} });
 // v2: v1 held auto-matches from the old, over-confident scorer (e.g. MHA S1 → FINAL SEASON).
 export const matchesItem = storage.defineItem<Record<string, number>>('local:matches.v2', { fallback: {} });
 

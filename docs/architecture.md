@@ -1,7 +1,7 @@
 ---
 title: Architecture
 tags: [architecture]
-updated: 2026-10-15
+updated: 2026-10-28
 ---
 # Architecture
 
@@ -30,6 +30,7 @@ updated: 2026-10-15
 
 ## Up next
 - `upNext()`: AniList CURRENT + REPEATING → CR series (`mapSeries`) → season (exact import match, else `seasonNumberOf()` vs original-audio `season_number`, else title similarity) → episode at index `progress` = next to watch, plus count available. Sorted ready-to-watch first, then most recently updated. Read-only. UI: `src/components/UpNext.svelte`.
+- **Upcoming** (hub, under the ready grid): Watching / Rewatching / Planning / Paused entries with a `nextAiringEpisode`, soonest first, live countdown (`countdown()` in `src/lib/quick.ts`; ticks every second inside the last hour, else 30 s). Read from the cached full list (`anilist:listFull`), no extra request. The episode-page widget shows the same countdown for the playing season.
 
 ## Card badges (`src/entrypoints/crunchyroll.content/badges.ts`)
 - AniList status chip on CR series cards (setting `badges`). Uses **offline mapping only** (`knownSeries`: crSeries cache, externalLinks, import matches) — browsing never triggers CR searches. Multiple entries per series → priority Watching > Rewatching > Paused > Planning > Completed > Dropped.
@@ -45,7 +46,16 @@ updated: 2026-10-15
 
 ## Fragile points (CR changes)
 - All CR endpoints live in `src/lib/cr-api.ts`. Watch-history paging (`page`/`page_size`) and watchlist (`n`/`start`) are unverified against live CR, as are the write endpoints (watchlist POST, custom-lists create/add/remove), `discover/search` and `multiprofile`.
+- Newest-season pick (`season-pick.ts`, setting `latestSeason`): found by text, not classes — trigger = a button whose text is a season label ("Season 1" / "S1: …", never "S1 E3"); options = innermost elements reading "<label> … N Episodes". Highest season number wins, OVA/movie/special/dub labels excluded; once per series visit.
 - Theme selectors use `[class*=…]` prefixes; failing ones just fall back to stock CR.
+
+## AniList request budget (background)
+- `Viewer` cached in `local:anilistViewer` (per token) — not in SW memory, which dies after ~30 s idle; concurrent callers share one request.
+- Full list with media (`myListFull`) cached in `local:anilistList.v1` for 5 min (`fullList(maxAge)`, one in-flight request shared). Our own saves (`anilist:save`/`saveMany`/`plan`, player sync) patch the cached entry in place; a save for a media not on the cached list, undo and sign-out drop it. Import start (`anilist:list`) always refetches it.
+- `resolveMany` reads media + entry of saved matches from that cached list (`mediaById`, `listAge`); only media not on the list go to `mediaMany`. Player sync passes `listAge 0` so the write sees AniList's current entry.
+
+## Hotkeys (`src/lib/quick.ts`, setting `hotkeys`)
+- Episode pages: Alt+Shift+W Watching · P Planning · C Completed · ↑/= +1 ep · ↓/- −1 ep, by `KeyboardEvent.code`, capture phase, ignored in inputs. The player iframe (if any) forwards them to the top frame (`hotkey` postMessage). `quickPatch`: +1 from none/Planning/Paused/Dropped → Watching, reaching the count → Completed; −1 out of Completed → Watching; Completed fills progress. The widget's −/+ use the same rules. Quick bar (setting `quickBar`, `Widget.svelte`): fixed beside the pill — no CR DOM anchor — shown when the playing season has a match and the panel is closed; same `applyQuick`, which holds `ui.busy` so double clicks and the auto-sync don't race. Series pages: `ui.series` from `seriesEntry()` (badges' offline index over the cached list → best entry); not on the list → "+ Watching"/"+ Planning" via `anilist:plan {status}` (h1 title, exact match). Card "+ Plan" under CR's hover card: `liftOnHover` hit-tests the button's centre on mouseenter, climbs to the covering layer's root and appends a copy (`data-crunchyplus-lifted`) bottom-right.
 
 ## AniList auth
 - Manifest `key` pins the extension ID to `mlfpneomdkdbknkiihofllhhecpdopcl` for dev, prod and unpacked builds → redirect URL `https://mlfpneomdkdbknkiihofllhhecpdopcl.chromiumapp.org/`.
@@ -63,6 +73,7 @@ updated: 2026-10-15
 - **CR season → several AniList parts**: auto when the match has fewer episodes than the CR season — follow AniList SEQUEL relations (TV/ONA) until counts add up (±1; last part may be airing). Manual: picker "split across AniList parts" / "undo split".
 - **Several CR seasons → one AniList entry**: import detects consecutive CR seasons of a series matched to the same entry and saves an offset (`single(id, offset)`). Manual: picker "AniList ep before this season's ep 1".
 - Used by the import (one plan per part, logged per entry for undo) and by player sync (every reached part; the panel shows the part containing the current episode).
+- Auto-detect remembers a miss: `local:splitChecked` (`seasonKey` → CR episode count checked). The sequel walk (up to 4 requests) runs again only when the CR season's episode count changes.
 
 ## Status rules (`planUpdate`)
 - Progress never goes backwards; COMPLETED untouched; REPEATING only advances; reaching AniList's episode count completes any status (CR's count is "aired so far" and is never used as the total).
@@ -76,6 +87,7 @@ updated: 2026-10-15
 - Every real scan saves `local:lastScan` (CR seasons + per-row match ids and planned updates). **Replay last scan** re-runs matching/planning on it with no CR requests; "ignore saved matches" re-searches every row (`match:resolveMany {force}`, nothing saved) to test the matcher. Rows are tagged new / match changed / plan changed against the baseline; a **Changed** filter lists them. Replays don't overwrite the snapshot.
 - **Backport** (per row): write CR's exact progress and implied status even if lower than AniList (`forcedPlan`, shown as "↓"). Logged for undo like any import.
 - Apply merges every part that targets the same AniList entry into one write (backport > Completed > furthest progress), so split/continuing seasons can't move an entry backwards. Undo-from-log dedupes entries (first `before` wins).
+- **Incremental scan**: history pages stop at the newest cached play date (`seenBefore`); rows carry `fresh` (new plays, or no cache). The import matches only fresh seasons and ones missing from `local:lastScan`; the rest keep that scan's results (merged into the new snapshot). The profile confirm step is skipped when it is the same confirmed (page/token) profile as `local:lastScan`. "full rescan" ignores both caches.
 
 ## Crunchyroll page UI (`theme.css`, `badges.ts`, `UpNextRow.svelte`)
 - Selectors verified against the logged-in home page (2026-10). CR classes are BEM + 5-char hash (`browse-card--esJdT`) → match `[class*="block--"]` / `[class*="block__el--"]`; prefer unhashed `data-t` hooks. Exceptions: `.erc-feed`, `.collection-item` are unhashed.
@@ -97,7 +109,7 @@ updated: 2026-10-15
 - `prerelease.yml` (push to `dev`): `scripts/next-prerelease.sh` computes `<next>-dev<run:04>` (base from the release-please manifest, bump from conventional commits since the last stable `v*` tag), sets it in `package.json` in CI only, zips all four targets and publishes GitHub prerelease `v<next>-dev<run:04>` (`--prerelease --latest=false`), keeping the newest 10. Zero padding keeps GitHub's text sort in order.
 - Local builds (`wxt.config.ts` → `localVersionName`; not in CI, not on the tagged release commit) set Chromium `version_name` `<next>-dev (local <sha>[+])` (`+` = uncommitted changes), so a reloaded unpacked build shows it is newer than the last release.
 - Browser targets: `wxt zip -b chrome|edge|brave|firefox`. Edge and Brave are the Chromium MV3 build under their own name. The manifest `key` (pinned ID for the AniList redirect) only goes into non-production Chromium builds. Firefox builds MV2 with `browser_specific_settings.gecko` (id `crunchy-plus@nylegarcia.github.io`, `strict_min_version` 128 for the manifest `world: MAIN` cr-hook, `data_collection_permissions: none`). Not yet verified in a real Firefox; AniList OAuth there needs Firefox's own redirect URL registered with the AniList client, otherwise use the PIN fallback.
-- `dev` branch: not created yet. Until it exists `prerelease.yml` never fires; create it (and optionally make it the default branch) to switch to the RSI+ flow where day-to-day work lands on `dev` and `dev` → `main` PRs cut releases.
+- `dev` branch (created 2026-10-22, default): day-to-day work lands on `dev` (CI + Security + prerelease per push); `dev` → `main` PRs cut releases. `security.yml` / `scorecard.yml` / Dependabot / SLSA + SHA256SUMS mirror RSI+ — see `ci.md`.
 
 ## Hub styling (hub + popup)
 - **shadcn-svelte + Tailwind v4** (spec: `plans/specs/shadcn-migration.md`). `src/app.css` = Tailwind + `tw-animate-css` + `src/shadcn.css` (the CLI's variant layer, copied) + the dark-only token palette (brand `--primary #ff7a1a`, `--success`, `--warning`, legacy `--bg`/`--surface`/`--line`/`--text`/`--ok`/`--err` aliases). Imported **only** by `entrypoints/hub/main.ts` and `entrypoints/popup/main.ts`; Vite emits it in the shared `assets/plus-*.css` chunk.

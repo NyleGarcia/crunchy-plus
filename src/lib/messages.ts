@@ -35,6 +35,8 @@ export interface ScrapedSeason {
   furthest: number;
   lastPlayed: string | null;
   inWatchlist: boolean;
+  /** Got new or changed plays this scan (always true on a full scan / empty cache); absent in older snapshots. */
+  fresh?: boolean;
 }
 
 export interface Scrape {
@@ -148,7 +150,7 @@ export type BgRequest =
   | { type: 'anilist:search'; q: string }
   | { type: 'anilist:list' }
   | { type: 'anilist:save'; mediaId: number; patch: { status?: ListStatus; progress?: number } }
-  | { type: 'anilist:plan'; seriesId: string; title: string }
+  | { type: 'anilist:plan'; seriesId: string; title: string; status?: 'PLANNING' | 'CURRENT' }
   | { type: 'match:resolve'; key: string; input: MatchInput; force?: boolean }
   | { type: 'match:resolveMany'; items: { key: string; input: MatchInput }[]; force?: boolean }
   | { type: 'anilist:saveMany'; items: { mediaId: number; status?: ListStatus; progress?: number }[] }
@@ -200,15 +202,30 @@ const RETRYABLE = new Set<BgRequest['type']>(['anilist:status', 'anilist:list', 
 /** MV3 service worker was asleep, restarting, or reloaded (dev) — not a real failure. */
 const SW_GONE = /message channel closed|Receiving end does not exist|Could not establish connection/i;
 
+/**
+ * The extension was reloaded or updated under this page: the old content script can't reach it any more
+ * ("Extension context invalidated"). Only a page reload brings Crunchy+ back here.
+ */
+export const contextGone = () => {
+  try {
+    return !browser.runtime?.id;
+  } catch {
+    return true;
+  }
+};
+export const RELOAD_MSG = 'Crunchy+ was updated — reload this page to use it again.';
+
 export async function bg<K extends BgRequest['type']>(
   msg: Extract<BgRequest, { type: K }>,
 ): Promise<BgResponses[K]> {
+  if (contextGone()) throw new Error(RELOAD_MSG);
   let r: Envelope<BgResponses[K]> | undefined;
   for (let attempt = 0; ; attempt++) {
     try {
       r = (await browser.runtime.sendMessage(msg)) as Envelope<BgResponses[K]> | undefined;
       break;
     } catch (e) {
+      if (contextGone() || /context invalidated/i.test(String(e))) throw new Error(RELOAD_MSG);
       const gone = SW_GONE.test(e instanceof Error ? e.message : String(e));
       // "Receiving end does not exist" = never delivered, so any request may resend; otherwise reads only.
       const neverDelivered = gone && /Receiving end|establish connection/i.test(String(e));

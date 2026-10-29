@@ -1,4 +1,5 @@
 # Prerelease: every push to dev publishes a vX.Y.Z-devNNNN GitHub prerelease with zips for chrome, edge, brave and firefox; keeps the newest 10.
+# GitHub only — prereleases are never submitted to the Chrome Web Store; only mainline releases are (release.yml → publish).
 name: Prerelease
 on:
   push:
@@ -6,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prerelease-${{ github.ref }}
@@ -19,7 +20,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
       - id: v
@@ -31,8 +32,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -48,8 +49,8 @@ jobs:
       matrix:
         target: [chrome, edge, brave, firefox]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -58,7 +59,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
       - run: npx wxt zip -b ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: crunchy-plus-${{ matrix.target }}
           path: .output/*.zip
@@ -68,12 +69,14 @@ jobs:
   publish:
     needs: [version, assets]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create / upload / prune prereleases
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.version.outputs.tag }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: zips
           merge-multiple: true

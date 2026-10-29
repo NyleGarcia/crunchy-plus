@@ -40,10 +40,11 @@ export default defineConfig({
     // builds (`wxt build` / `wxt zip`) omit it.
     ...(mode === 'production' || browser === 'firefox' ? {} : { key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw0O4EJ59riwJMyq+BMfZ39Z1fATA2WcRcTU71zilf5YbZx5C2LuFNYcTo+e+rHHp2eAcFw5TPwh6+NRkNWaeVb+XwjTF1FH7E+a8hG4GrYP4x0dpIzh6hOGe7ELpdfMWvzDUkKMmsG8Zy+qBGbgPxSMgtBshGqPFWB0dySdGL+6YIt/P2TbE/4boKuzBWy96ZTChtdMp0L2tM51RveghGT6Nh2/d5HSrp5UPtTxKRAUe1QdM1c21L5KuIQXNuHyJZ5m8VUrl+p+gaUmfY3pu4YQEN5pc7wjGIa4SrgltyObQ7agZMB9mD5ccwFgeyIXw5RkGfAJBsXntPLJrs9KgfQIDAQAB' }),
     name: 'Crunchy+',
-    // Firefox ignores version_name; Chromium shows it on the extensions page.
-    ...(versionName && browser !== 'firefox' ? { version_name: versionName } : {}),
+    ...(versionName ? { version_name: versionName } : {}),
     description: 'Sub/dub modes, a modern Crunchyroll UI, and AniList sync + import.',
-    permissions: ['storage', 'identity'],
+    // unlimitedStorage: the import scan cache (history + season episode lists) can pass storage.local's 10 MB quota;
+    // a failed save meant every scan read everything again.
+    permissions: ['storage', 'unlimitedStorage', 'identity'],
     host_permissions: ['*://*.crunchyroll.com/*', 'https://graphql.anilist.co/*', 'https://api.typesafe.ai/*'],
     ...(browser === 'firefox'
       ? {

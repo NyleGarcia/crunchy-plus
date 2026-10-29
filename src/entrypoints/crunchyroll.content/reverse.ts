@@ -148,11 +148,24 @@ export async function mapSeries(entries: AniListItem[]): Promise<Map<number, str
   return out;
 }
 
-const originalSeasons = (seasons: CRSeason[]) =>
-  seasons.filter((s) => {
+/**
+ * Original-audio seasons. CR lists a season in the profile's preferred audio, so with an English-audio
+ * profile every season comes back as its dub (id `…ENUS`, `original: false`): swap those for their
+ * original version's id. Dub-only seasons (no original version) are left out.
+ */
+export function originalSeasons(seasons: CRSeason[]): CRSeason[] {
+  const out = new Map<string, CRSeason>();
+  for (let s of seasons) {
     const info = audioInfo(s);
-    return info ? isOriginal(info) : true;
-  });
+    if (info && !isOriginal(info)) {
+      const orig = s.versions?.find((v) => v.original);
+      if (!orig?.guid) continue;
+      s = { ...s, id: orig.guid, audio_locale: orig.audio_locale };
+    }
+    if (!out.has(s.id)) out.set(s.id, s);
+  }
+  return [...out.values()];
+}
 
 /** The original-audio CR season an AniList entry corresponds to. */
 async function seasonFor(seriesId: string, e: AniListItem, inv: Awaited<ReturnType<typeof invertedMatches>>) {
@@ -331,11 +344,11 @@ export let lastSeasonsError = '';
 
 /**
  * Original-audio seasons of a CR series with how many episodes are out (dub versions and
- * specials never count). One CR request per season; cached 6 h. null = couldn't check.
+ * specials never count). One CR request per season; cached 6 h (`fresh` skips the cache). null = couldn't check.
  */
-export async function seriesSeasons(seriesId: string): Promise<SeasonInfo[] | null> {
+export async function seriesSeasons(seriesId: string, fresh = false): Promise<SeasonInfo[] | null> {
   const hit = (await crSeasonsItem.getValue())[seriesId];
-  if (hit && Date.now() - hit.at < SEASONS_TTL) return hit.seasons;
+  if (!fresh && hit && Date.now() - hit.at < SEASONS_TTL) return hit.seasons;
   try {
     const raw = await cr.seasons(seriesId);
     let seasons = originalSeasons(raw);
@@ -365,22 +378,29 @@ export async function seriesSeasons(seriesId: string): Promise<SeasonInfo[] | nu
       return null;
     }
     seasons = [...seasons].sort((a, b) => a.season_number - b.season_number);
+    // Some series leave every display number empty: then it says nothing about extras.
+    const numbered = seasons.some((s) => !!s.season_display_number);
     const out: SeasonInfo[] = [];
     for (const s of seasons) {
       const now = Date.now();
-      const eps = (await cr.seasonEpisodes(s.id)).filter((ep) => {
+      const listed = await cr.seasonEpisodes(s.id);
+      const dropped = { noNumber: 0, dub: 0, future: 0, listed: listed.length };
+      const eps = listed.filter((ep) => {
         const m = ep.episode_metadata;
         const info = audioInfo(ep);
-        if (m?.episode_number == null || (info && !isOriginal(info))) return false;
+        if (m?.episode_number == null) return void dropped.noNumber++, false;
+        if (info && !isOriginal(info)) return void dropped.dub++, false;
         const t = Date.parse(m.premium_available_date ?? m.episode_air_date ?? '');
-        return !(t > now); // unknown date counts as out (it's listed)
+        if (t > now) return void dropped.future++, false; // unknown date counts as out (it's listed)
+        return true;
       });
       out.push({
         id: s.id,
         number: s.season_number,
         out: new Set(eps.map((e) => e.episode_metadata!.episode_number)).size,
         title: s.title,
-        main: isMainSeason(s),
+        main: isMainSeason(s, numbered),
+        dropped,
       });
     }
     await crSeasonsItem.setValue({ ...(await crSeasonsItem.getValue()), [seriesId]: { at: Date.now(), seasons: out } });
@@ -393,11 +413,11 @@ export async function seriesSeasons(seriesId: string): Promise<SeasonInfo[] | nu
 }
 
 /** CR lists OVAs, specials, movies and recaps as "seasons" too — often with high numbers. */
-const EXTRA_SEASON = /\b(ova|oad|ona special|specials?|movies?|film|recap|picture drama|shorts?|mini|extra|bonus)\b/i;
-export function isMainSeason(s: { title: string; season_display_number?: string }): boolean {
+const EXTRA_SEASON = /\b(ova|oads?|ona special|specials?|movies?|film|recap|picture drama|shorts?|mini|extras?|bonus|compilation|the stage)\b/i;
+export function isMainSeason(s: { title: string; season_display_number?: string }, numbered = true): boolean {
   if (EXTRA_SEASON.test(s.title)) return false;
-  // Many series leave the display number empty for non-numbered extras.
-  return s.season_display_number !== '' ;
+  // Many series leave the display number empty for non-numbered extras — only meaningful when others have one.
+  return !numbered || s.season_display_number !== '';
 }
 
 /** Which CR season an AniList entry is: exact import match → season number in its title (main seasons) → last main season. */
@@ -412,5 +432,7 @@ export async function seasonOf(e: AniListItem, seriesId: string, seasons: Season
   const pool = seasons.filter((x) => (x.main ?? true) !== extra);
   const list = pool.length ? pool : seasons;
   const n = seasonNumberOf(e);
-  return list.find((x) => x.number === n) ?? (n === 1 ? list[0] : list[list.length - 1]);
+  // CR's season_number counts extras too (MHA "Season 7" is number 8): a "Season N" title wins.
+  const titled = (x: SeasonInfo) => Number(x.title?.match(/\bseason\s*(\d+)\b/i)?.[1] ?? NaN);
+  return list.find((x) => titled(x) === n) ?? list.find((x) => x.number === n && !(titled(x) >= 0)) ?? list.find((x) => x.number === n) ?? (n === 1 ? list[0] : list[list.length - 1]);
 }

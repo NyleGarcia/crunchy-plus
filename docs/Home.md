@@ -1,11 +1,13 @@
 ---
 title: Home
 tags: [index]
-updated: 2026-10-13
+updated: 2026-10-22
 ---
 # Crunchy+ docs
 - [[architecture]] · [architecture](architecture.md)
 - [[changelog]] · [changelog](changelog.md)
+- [[ci]] · [CI and security checks](ci.md)
+- [[release]] · [release and Web Store publishing](release.md)
 - [[plans/now/todo]] · [now](plans/now/todo.md)
 - [[plans/next/backlog]] · [next](plans/next/backlog.md)
 - [[plans/later/ideas]] · [later](plans/later/ideas.md)

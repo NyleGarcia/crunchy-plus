@@ -19,6 +19,9 @@
   }
 
   let tab = $state<Tab>(fromHash());
+  // Local builds carry `X.Y.Z-dev (local <sha>)` in version_name (wxt.config.ts); releases only `version`.
+  const manifest = browser.runtime.getManifest();
+  const version = manifest.version_name ?? manifest.version;
 
   $effect(() => {
     const onHash = () => (tab = fromHash());
@@ -37,7 +40,10 @@
 <Tooltip.Provider delayDuration={300}>
   <Tabs.Root value={tab} onValueChange={select} class="mx-auto max-w-[1100px] gap-6 px-6 pt-8 pb-12 max-[520px]:px-3">
     <header class="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 max-[520px]:flex-col max-[520px]:items-stretch">
-      <h1 class="m-0 text-[22px] font-bold tracking-[-0.01em]">Crunchy<span class="text-primary">+</span></h1>
+      <div class="flex items-baseline gap-2">
+        <h1 class="m-0 text-[22px] font-bold tracking-[-0.01em]">Crunchy<span class="text-primary">+</span></h1>
+        <span class="text-muted-foreground text-xs tabular-nums">{version}</span>
+      </div>
       <Tabs.List aria-label="Sections" class="grid h-auto w-auto grid-flow-col auto-cols-fr rounded-[10px] border border-border bg-white/5 p-[3px]">
         {#each TABS as t (t.id)}
           <Tabs.Trigger
