@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/NyleGarcia/crunchy-plus/compare/v0.2.0...v0.3.0) (2026-10-29)
+
+
+### Features
+
+* quick bar, hotkeys, upcoming countdown, newest-season pick; fewer AniList calls; incremental import ([af418db](https://github.com/NyleGarcia/crunchy-plus/commit/af418db3f4c39e661557be64baa74448e3a3228b))
+
+
+### Bug Fixes
+
+* **cr:** "+ Plan" on an empty list, no remake guessing; import picker Enter picks again ([069703b](https://github.com/NyleGarcia/crunchy-plus/commit/069703b04526e8cafb1da80e6cf81ec30e28b5e6))
+
 ## [0.2.0](https://github.com/NyleGarcia/crunchy-plus/compare/v0.1.0...v0.2.0) (2026-10-22)
 
 
