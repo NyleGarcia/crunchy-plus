@@ -1,4 +1,4 @@
-import type { AniEntry, NowPlaying } from './types';
+import type { AniEntry, AniMedia, NowPlaying } from './types';
 import type { MatchResult } from './messages';
 import { DEFAULTS, type Settings } from './settings';
 
@@ -16,6 +16,8 @@ export const ui = $state({
   np: null as NowPlaying | null,
   match: null as MatchResult | null,
   entry: null as AniEntry | null,
+  /** Series page (no episode playing): the show's most actionable AniList entry, or none (`media` null). */
+  series: null as { id: string; media: AniMedia | null; entry: AniEntry | null } | null,
   watched: 0,
   synced: false,
   busy: false,
@@ -24,6 +26,8 @@ export const ui = $state({
 
 let seq = 0;
 export function toast(text: string, tone: Toast['tone'] = 'ok', action?: Toast['action'], ms = 6000) {
+  // The same message already on screen (a retrying failure) isn't stacked again.
+  if (ui.toasts.some((x) => x.text === text)) return;
   const t: Toast = { id: ++seq, text, tone, action };
   ui.toasts.push(t);
   setTimeout(() => {

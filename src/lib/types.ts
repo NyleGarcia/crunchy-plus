@@ -72,6 +72,8 @@ export interface AniMedia {
   /** AniList users with this on their list. */
   popularity?: number | null;
   externalLinks?: { site: string; url: string | null }[];
+  /** Next episode to air (unix seconds); null when finished or unscheduled. */
+  nextAiringEpisode?: { episode: number; airingAt: number } | null;
   mediaListEntry?: AniEntry | null;
 }
 
@@ -112,6 +114,8 @@ export interface SeasonInfo {
   title?: string;
   /** A regular season (not an OVA/OAD/special/movie/recap listed as a season). */
   main?: boolean;
+  /** Episodes listed but not counted as out, by reason (diagnostics; absent in older caches). */
+  dropped?: { noNumber: number; dub: number; future: number; listed: number };
 }
 
 /** Season-level key used for match cache + import aggregation. */

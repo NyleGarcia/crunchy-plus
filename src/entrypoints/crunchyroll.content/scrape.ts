@@ -1,7 +1,7 @@
 import * as cr from '@/lib/cr-api';
 import { progressFrom } from '@/lib/progress';
 import { progress, type Scrape, type ScrapedSeason } from '@/lib/messages';
-import { emptyCache, isKnown, knownKeys, mergeHistory, trimEpisode, type CachedPlay, type ScanCache } from '@/lib/scan-cache';
+import { emptyCache, mergeHistory, seenBefore, trimEpisode, type ScanCache } from '@/lib/scan-cache';
 import { scanCacheItem } from '@/lib/settings';
 import { seasonKey, type CREpisode } from '@/lib/types';
 
@@ -20,16 +20,16 @@ interface Group {
 
 /**
  * Scrape CR watch history + watchlist into one row per original-audio season.
- * Incremental: history pages are read newest-first until one holds an entry the cache already has;
+ * Incremental: history pages are read newest-first until one reaches the newest cached play's date;
  * season episode lists are reused unless the season got new plays. `full` ignores the cache.
+ * Rows carry `fresh` (new plays this scan, or every row when there was no cache) so the import only re-matches those.
  */
 export async function scrape(opts?: { full?: boolean }): Promise<Scrape> {
   progress(0, 'Checking profile…');
   const profileId = await cr.account();
   const prev = opts?.full ? null : await scanCacheItem.getValue();
   const cache: ScanCache = prev && prev.profileId === profileId ? prev : emptyCache(profileId);
-  const keys = knownKeys(cache.history);
-  const known = keys.size ? (h: cr.HistoryItem) => isKnown(keys, h) : undefined;
+  const known = seenBefore(cache.history);
 
   progress(0, known ? 'Reading new watch history…' : 'Reading watch history…');
   const fetched = await cr.watchHistory((n) => progress(n, `Reading ${known ? 'new ' : ''}watch history… ${n}`), Infinity, known);
@@ -123,6 +123,7 @@ export async function scrape(opts?: { full?: boolean }): Promise<Scrape> {
         furthest: pos.length ? Math.max(...pos) : 0,
         lastPlayed: g.lastPlayed,
         inWatchlist: g.inWatchlist,
+        fresh: !known || g.fresh,
       });
     }
   };

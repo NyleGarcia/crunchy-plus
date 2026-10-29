@@ -66,9 +66,14 @@ export const toPlay = (h: PlayLike): CachedPlay => ({
   ep: trimEpisode(h.panel),
 });
 
-/** Keys of the plays the cache holds; a fetched entry with the same key means nothing older is new. */
-export const knownKeys = (cached: CachedPlay[]) => new Set(cached.map((c) => `${c.id}|${c.at}`));
-export const isKnown = (keys: Set<string>, h: PlayLike) => keys.has(`${h.panel?.id}|${h.date_played}`);
+/**
+ * Stop condition for a rescan: a fetched play at or before the newest cached play is already known (a replay moves
+ * an episode's entry to the top with a new date), so nothing past that page is new. Undefined on an empty cache.
+ */
+export function seenBefore(cached: CachedPlay[]): ((h: PlayLike) => boolean) | undefined {
+  const newest = cached.reduce((t, c) => Math.max(t, Date.parse(c.at) || 0), 0);
+  return newest ? (h) => (Date.parse(h.date_played) || 0) <= newest : undefined;
+}
 
 /**
  * Merge freshly fetched plays (newest first, possibly overlapping the cache) into the cached list.

@@ -6,7 +6,7 @@
 // allowlist here in the same commit (and say why in wxt.config.ts). docs/ci.md.
 import { readFileSync } from 'node:fs';
 
-const PERMISSIONS = new Set(['storage', 'identity']);
+const PERMISSIONS = new Set(['storage', 'unlimitedStorage', 'identity']);
 const HOSTS = new Set(['*://*.crunchyroll.com/*', 'https://graphql.anilist.co/*', 'https://api.typesafe.ai/*']);
 const CONTENT_SCRIPT_HOSTS = ['*://www.crunchyroll.com/', '*://static.crunchyroll.com/'];
 const URL_ALLOW = /^https:\/\/(graphql\.anilist\.co|api\.typesafe\.ai|([a-z0-9-]+\.)*crunchyroll\.com)\//;

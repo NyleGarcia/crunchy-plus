@@ -4,14 +4,17 @@ import Widget from '@/components/Widget.svelte';
 import * as cr from '@/lib/cr-api';
 import { preferredVersion } from '@/lib/dub';
 import { HOOK_CONFIG_KEY, HOOK_TAG, type HookConfig } from '@/lib/hook-config';
-import { bg, respond, type CrOp, type CsRequest, type ExportPlan } from '@/lib/messages';
+import { bg, contextGone, RELOAD_MSG, respond, type CrOp, type CsRequest, type ExportPlan } from '@/lib/messages';
 import { exportClaimItem, getSettings, lastExportCheckItem, settingsItem, upNextCacheItem, type Settings } from '@/lib/settings';
 import { toast, ui } from '@/lib/state.svelte';
 import { seasonKey, type CREpisode, type NowPlaying } from '@/lib/types';
-import { startBadges, stopBadges } from './badges';
+import { hotkeyAction, type QuickAction } from '@/lib/quick';
+import { applyQuick } from '@/lib/quick-save';
+import { seriesEntry, startBadges, stopBadges } from './badges';
 import { exportApply, exportPlan, upNext } from './reverse';
 import { startRows } from './rows';
 import { scrape } from './scrape';
+import { pickLatestSeason } from './season-pick';
 import themeCss from './theme.css?inline';
 
 export default defineContentScript({
@@ -20,8 +23,11 @@ export default defineContentScript({
   runAt: 'document_start',
   cssInjectionMode: 'ui',
   async main(ctx) {
-    // Player iframes (if CR serves one) only report playback to the top frame.
-    if (window.top !== window) return reportVideo(window.top!);
+    // Player iframes (if CR serves one) only report playback and hotkeys to the top frame.
+    if (window.top !== window) {
+      getSettings().then((st) => st.hotkeys && listenHotkeys((action) => window.top!.postMessage({ [HOOK_TAG]: 'hotkey', payload: action }, '*')));
+      return reportVideo(window.top!);
+    }
     if (location.hostname !== 'www.crunchyroll.com') return;
 
     applySettings(await getSettings(), null);
@@ -31,9 +37,10 @@ export default defineContentScript({
     window.addEventListener('message', (e) => {
       const kind = e.data?.[HOOK_TAG];
       if (!kind) return;
-      if (kind === 'video' && /(^|\.)crunchyroll\.com$/.test(new URL(e.origin).hostname)) {
+      const fromCr = /(^|\.)crunchyroll\.com$/.test(new URL(e.origin).hostname);
+      if (kind === 'video' && fromCr) {
         onVideo(e.data.payload.t, e.data.payload.d);
-      } else if (e.source === window && kind === 'token') cr.setToken(e.data.payload);
+      } else if (kind === 'hotkey' && fromCr) onHotkey(e.data.payload); else if (e.source === window && kind === 'token') cr.setToken(e.data.payload);
       else if (e.source === window && kind === 'accountPath') cr.setObservedPath(e.data.payload);
       else if (e.source === window && kind === 'episode') onEpisode(e.data.payload);
     });
@@ -60,6 +67,7 @@ export default defineContentScript({
       })
       .catch(() => {});
 
+    listenHotkeys(onHotkey);
     ctx.addEventListener(window, 'wxt:locationchange', () => onRoute());
     onRoute();
     reportVideo(window);
@@ -103,6 +111,7 @@ export default defineContentScript({
       .then((s) => {
         ui.loggedIn = !!s.user;
         syncRow();
+        routeSeries();
       })
       .catch(() => {});
   },
@@ -173,11 +182,31 @@ function applyLook(s: Settings) {
   for (const [key, on] of Object.entries(s.declutter ?? {})) root.toggle(`cp-hide-${key}`, !!on);
 }
 
+const seriesPageId = () => location.pathname.match(/\/series\/([A-Z0-9]+)/i)?.[1] ?? null;
+
+/** Series page: look up the show on your AniList (offline mapping, cached list) for the quick bar. */
+function routeSeries() {
+  const id = seriesPageId();
+  if (!id || !ui.loggedIn) {
+    if (!id) ui.series = null;
+    return;
+  }
+  if (ui.series?.id === id) return;
+  ui.series = { id, media: null, entry: null };
+  seriesEntry(id)
+    .then((e) => {
+      if (e && ui.series?.id === id) Object.assign(ui.series, { media: e.media, entry: e });
+    })
+    .catch((e) => console.warn('[Crunchy+] series lookup', e));
+}
+
 const watchId = () => location.pathname.match(/\/watch\/([A-Z0-9]+)/i)?.[1] ?? null;
 
 let current: CREpisode | null = null;
 
 function onRoute() {
+  routeSeries();
+  getSettings().then((st) => st.latestSeason && pickLatestSeason(seriesPageId()));
   const id = watchId();
   if (!id) {
     current = null;
@@ -242,6 +271,26 @@ function handleRedirect(): boolean {
   return true;
 }
 
+/** Alt+Shift list hotkeys (lib/quick.ts), ignored while typing; capture phase so the player can't swallow them. */
+function listenHotkeys(run: (action: QuickAction) => void) {
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      const action = hotkeyAction(e);
+      const t = e.target as HTMLElement | null;
+      if (!action || t?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t?.tagName ?? '')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      run(action);
+    },
+    true,
+  );
+}
+
+function onHotkey(action: QuickAction) {
+  if (ui.settings.hotkeys && (watchId() || seriesPageId())) applyQuick(action);
+}
+
 function reportVideo(target: Window) {
   const seen = new WeakSet<HTMLVideoElement>();
   const attach = (v: HTMLVideoElement) => {
@@ -275,6 +324,11 @@ async function onVideo(t: number, d: number) {
       toast(`Couldn't match “${np.seasonTitle}” on AniList — pick it in the Crunchy+ panel.`, 'warn');
     }
   } catch (e) {
+    // Extension reloaded under this page: stop retrying on every timeupdate, say it once.
+    if (contextGone()) {
+      ui.synced = true;
+      return toast(RELOAD_MSG, 'warn', undefined, 15000);
+    }
     toast(`AniList sync failed: ${(e as Error).message}`, 'err');
   } finally {
     ui.busy = false;

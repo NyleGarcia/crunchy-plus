@@ -2,6 +2,8 @@
   import { bg } from '@/lib/messages';
   import { patchSettings } from '@/lib/settings';
   import { toast, ui } from '@/lib/state.svelte';
+  import { countdown, HOTKEY_HELP } from '@/lib/quick';
+  import { addSeries, applyQuick, quickTarget } from '@/lib/quick-save';
   import { seasonKey, type AniMedia, type ListStatus, type Mode } from '@/lib/types';
 
   let open = $state(false);
@@ -13,6 +15,19 @@
   const total = $derived(media?.episodes ?? ui.np?.seasonEpisodes ?? null);
   const needsPick = $derived(!!ui.np && ui.loggedIn && ui.match?.mediaId === null);
   const candidates = $derived(results.length ? results : (ui.match?.candidates ?? []).map((c) => c.media));
+  /** Quick bar beside the pill (panel closed): the playing season's match, or on a series page the show's entry. */
+  const q = $derived(quickTarget());
+  const bar = $derived(!open && ui.settings.quickBar && ui.loggedIn && (!!q || (!ui.np && !!ui.series)));
+  const airing = $derived((open ? media : q?.media)?.nextAiringEpisode ?? null);
+
+  // Ticks only while a countdown is on screen: every second in the last hour, else every 30 s.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!(open || bar) || !airing) return;
+    const near = airing.airingAt * 1000 - Date.now() < 3600e3;
+    const t = setInterval(() => (now = Date.now()), near ? 1000 : 30_000);
+    return () => clearInterval(t);
+  });
 
   const MODES: { id: Mode; label: string; hint: string }[] = [
     { id: 'sub', label: 'Sub', hint: 'Original audio only — dubs hidden' },
@@ -124,6 +139,7 @@
           <div>
             <a href={`https://anilist.co/anime/${media.id}`} target="_blank" rel="noreferrer">{titleOf(media)}</a>
             <small>CR ep {ui.np.progress}{total ? ` / ${total}` : ''}</small>
+            {#if airing}<small class="airing">Ep {airing.episode} airs in <b>{countdown(airing.airingAt * 1000, now)}</b></small>{/if}
             <div class="row">
               <select
                 value={ui.entry?.status ?? ''}
@@ -133,9 +149,9 @@
                 {#each STATUSES as s}<option value={s}>{label(s)}</option>{/each}
               </select>
               <div class="stepper">
-                <button aria-label="Decrease progress" onclick={() => save({ progress: Math.max(0, (ui.entry?.progress ?? 0) - 1) })}>−</button>
+                <button aria-label="Decrease progress" title="Alt+Shift+↓" onclick={() => applyQuick({ step: -1 })}>−</button>
                 <span>{ui.entry?.progress ?? 0}</span>
-                <button aria-label="Increase progress" onclick={() => save({ progress: (ui.entry?.progress ?? 0) + 1 })}>+</button>
+                <button aria-label="Increase progress" title="Alt+Shift+↑" onclick={() => applyQuick({ step: 1 })}>+</button>
               </div>
             </div>
           </div>
@@ -148,17 +164,43 @@
           {ui.synced ? '✓ Synced this episode' : ui.settings.autoSync ? `Auto-sync at ${Math.round(ui.settings.syncThreshold * 100)}%` : 'Auto-sync off'}
           · <button class="link" onclick={startPick}>wrong entry?</button>
         </small>
+        {#if ui.settings.hotkeys}<small class="muted keys">{HOTKEY_HELP}</small>{/if}
       {:else}
         <p class="muted">Finding AniList entry…</p>
       {/if}
     </section>
   {/if}
 
+  <div class="dock">
+  {#if bar}
+    <div class="quick" role="group" aria-label="AniList quick actions">
+      {#if q?.entry}
+        <div class="stepper">
+          <button aria-label="One episode less" title="−1 episode (Alt+Shift+↓)" disabled={ui.busy} onclick={() => applyQuick({ step: -1 })}>−</button>
+          <span title="AniList progress">{q.entry.progress}{q.media.episodes ? `/${q.media.episodes}` : ''}</span>
+          <button aria-label="One episode more" title="+1 episode (Alt+Shift+↑)" disabled={ui.busy} onclick={() => applyQuick({ step: 1 })}>+</button>
+        </div>
+        <select
+          aria-label="AniList status"
+          disabled={ui.busy}
+          value={q.entry.status}
+          onchange={(e) => applyQuick({ status: (e.currentTarget as HTMLSelectElement).value as ListStatus })}
+        >
+          {#each STATUSES as s}<option value={s}>{label(s)}</option>{/each}
+        </select>
+      {:else}
+        <button class="add" title="Alt+Shift+W" disabled={ui.busy} onclick={() => (q ? applyQuick({ status: 'CURRENT' }) : addSeries('CURRENT'))}>+ Watching</button>
+        <button class="add" title="Alt+Shift+P" disabled={ui.busy} onclick={() => (q ? applyQuick({ status: 'PLANNING' }) : addSeries('PLANNING'))}>+ Planning</button>
+      {/if}
+      {#if airing}<span class="next" title={`Episode ${airing.episode} on AniList's schedule`}>Ep {airing.episode} · <b>{countdown(airing.airingAt * 1000, now)}</b></span>{/if}
+    </div>
+  {/if}
   <button class="pill" class:alert={needsPick} onclick={() => (open = !open)} aria-expanded={open}>
     <span class="dot" class:ok={ui.synced}></span>
     {ui.settings.mode.toUpperCase()}
     {#if ui.busy}<span class="spin"></span>{/if}
   </button>
+  </div>
 </div>
 
 <style>
@@ -183,6 +225,56 @@
     font: inherit;
     color: inherit;
     cursor: pointer;
+  }
+  .dock {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .quick {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.7);
+    animation: rise 160ms ease;
+  }
+  .quick .stepper,
+  .quick select {
+    border-radius: 999px;
+  }
+  .quick select {
+    padding: 4px 8px;
+  }
+  .quick .stepper span {
+    min-width: 40px;
+  }
+  .quick .add {
+    border: 1px solid var(--line);
+    background: rgb(255 255 255 / 0.06);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-weight: 600;
+  }
+  .quick .add:hover {
+    border-color: var(--accent);
+  }
+  .quick button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .next {
+    padding: 0 6px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .next b {
+    color: var(--accent);
   }
   .pill {
     display: inline-flex;
@@ -312,6 +404,13 @@
   }
   .entry small {
     color: var(--muted);
+  }
+  .entry .airing b {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .keys {
+    font-size: 11px;
   }
   .row {
     display: flex;
@@ -444,6 +543,7 @@
   @media (prefers-reduced-motion: reduce) {
     .panel,
     .toast,
+    .quick,
     .pill {
       animation: none;
       transition: none;

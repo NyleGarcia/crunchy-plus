@@ -68,6 +68,8 @@
   let replayFresh = $state(false);
   /** Ignore the scan cache: read all history and every season again. */
   let fullScan = $state(false);
+  /** Seasons the last incremental scan left alone (no new plays, already resolved before). */
+  let unchanged = $state(0);
   $effect(() => {
     lastScanItem.getValue().then((s) => (hasSnapshot = !!s));
   });
@@ -274,13 +276,17 @@
 
   let profile = $state<ProfileInfo | null>(null);
 
-  /** Step 1: show which Crunchyroll profile will be read, and wait for the user's OK. */
+  /**
+   * Step 1: show which Crunchyroll profile will be read, and wait for the user's OK — skipped when it is the
+   * confirmed profile the last scan read (a profile only known from the account fallback always asks).
+   */
   async function checkProfile() {
     error = '';
     phase = 'profile';
     label = 'Checking Crunchyroll profile…';
     try {
       profile = await crOp('profile');
+      if (profile.source !== 'account' && (await lastScanItem.getValue())?.profileId === profile.id) return start();
       phase = 'confirm';
     } catch (e) {
       error = (e as Error).message;
@@ -295,11 +301,15 @@
       label = 'Connecting to Crunchyroll tab…';
       const scrape = await crOp('scrape', { full: fullScan });
       stats = { history: scrape.historyCount, historyNew: scrape.historyNew, watchlist: scrape.watchlistCount };
-      baseline = await lastScanItem.getValue();
+      baseline = await loadSnapshot();
       replayMode = null;
-      await runMatching(scrape.seasons, false);
-      await saveSnapshot(scrape.seasons);
-      phase = 'review';
+      // Seasons without new plays that the last scan already resolved are left as they were: no re-matching.
+      const prior = !fullScan && baseline?.profileId === (profile?.id ?? null) ? baseline : null;
+      const todo = prior ? scrape.seasons.filter((s) => s.fresh !== false || !prior.results[s.key]) : scrape.seasons;
+      unchanged = scrape.seasons.length - todo.length;
+      await runMatching(todo, false);
+      await saveSnapshot(scrape.seasons, prior);
+      phase = rows.length ? 'review' : 'done';
     } catch (e) {
       error = (e as Error).message;
       phase = 'idle';
@@ -312,12 +322,13 @@
    */
   async function replay(fresh: boolean) {
     error = '';
-    const snap = await lastScanItem.getValue();
+    const snap = await loadSnapshot();
     if (!snap) return;
     try {
       baseline = snap;
       replayMode = fresh ? 'fresh' : 'saved';
       stats = { history: 0, historyNew: 0, watchlist: 0 };
+      unchanged = 0;
       await runMatching(snap.seasons, fresh);
       phase = 'review';
     } catch (e) {
@@ -380,12 +391,21 @@
     parts: r.parts.map((p) => ({ mediaId: p.media.id, plan: p.plan ? { status: p.plan.status, progress: p.plan.progress } : null })),
   });
 
-  async function saveSnapshot(seasons: ScrapedSeason[]) {
+  /** The last scan, minus result entries not in the current shape (a malformed one would crash the diff). */
+  async function loadSnapshot(): Promise<ScanSnapshot | null> {
+    const snap = await lastScanItem.getValue();
+    if (!snap) return null;
+    const results = Object.fromEntries(Object.entries(snap.results ?? {}).filter(([, r]) => r && Array.isArray(r.parts)));
+    return { ...snap, results, seasons: Array.isArray(snap.seasons) ? snap.seasons : [] };
+  }
+
+  /** `prior`: an incremental scan matched only some seasons; the rest keep the previous scan's results. */
+  async function saveSnapshot(seasons: ScrapedSeason[], prior: ScanSnapshot | null) {
     await lastScanItem.setValue({
       at: Date.now(),
       profileId: profile?.id ?? null,
       seasons: $state.snapshot(seasons),
-      results: Object.fromEntries(rows.map((r) => [r.season.key, snapResult(r)])),
+      results: { ...prior?.results, ...Object.fromEntries(rows.map((r) => [r.season.key, snapResult(r)])) },
     });
   }
 
@@ -589,12 +609,17 @@
           </span>
         {/if}
       {/if}
+      {#if phase === 'idle' || phase === 'done'}
+        <Hint class="ml-auto" text="Normally only history newer than the last scan is read, and seasons without new plays are skipped (not re-matched)">
+          <label class="flex items-center gap-1.5"><Checkbox bind:checked={fullScan} /> full rescan (ignore cache)</label>
+        </Hint>
+      {/if}
       {#if phase === 'idle'}
-        <Button class="ml-auto" onclick={checkProfile}>Scan Crunchyroll</Button>
+        <Button onclick={checkProfile}>Scan Crunchyroll</Button>
       {:else if phase === 'review'}
         <Button class="ml-auto" disabled={!selectedCount} onclick={apply}>Apply {selectedCount} updates</Button>
       {:else if phase === 'done'}
-        <Button variant="outline" class="ml-auto" onclick={checkProfile}>Rescan</Button>
+        <Button variant="outline" onclick={checkProfile}>Rescan</Button>
       {/if}
     </Card.Content>
   </Card.Root>
@@ -623,9 +648,6 @@
           <div class="flex flex-wrap items-center gap-2">
             <Button onclick={start}>Yes, scan this profile</Button>
             <Button variant="outline" onclick={() => (phase = 'idle')}>Cancel</Button>
-            <Hint text="Normally only history newer than the last scan is read and already-resolved seasons are reused">
-              <label class="flex items-center gap-1.5"><Checkbox bind:checked={fullScan} /> full rescan (ignore cache)</label>
-            </Hint>
           </div>
         {/if}
       </Card.Content>
@@ -637,9 +659,15 @@
   {/if}
   {#if error}<p class="text-destructive m-0">{error}</p>{/if}
 
+  {#if phase === 'done' && !rows.length && unchanged}
+    <p class="text-muted-foreground m-0">
+      No new plays since the last scan ({stats.history} history items, {unchanged} seasons unchanged). Tick <i>full rescan</i> to review every season again.
+    </p>
+  {/if}
   {#if rows.length}
     <p class="text-muted-foreground m-0">
-      {stats.history} history items{stats.historyNew < stats.history ? ` (${stats.historyNew} new)` : ''} · {stats.watchlist} watchlist · {rows.length} seasons
+      {#if profile && !replayMode}Profile <b>{profile.name ?? `…${profile.id.slice(-6)}`}</b> · {/if}{stats.history} history items{stats.historyNew < stats.history ? ` (${stats.historyNew} new)` : ''} · {stats.watchlist} watchlist · {rows.length} seasons
+      {#if unchanged}· {unchanged} unchanged skipped{/if}
       {#if unmatched}· <b class="text-primary">{unmatched} need a match</b>{/if}
     </p>
     {#if baseline}

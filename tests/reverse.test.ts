@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { baseTitle, pickSeries, seasonNumberOf } from '@/entrypoints/crunchyroll.content/reverse';
-import type { AniListItem } from '@/lib/types';
+import { baseTitle, isMainSeason, originalSeasons, pickSeries, seasonNumberOf } from '@/entrypoints/crunchyroll.content/reverse';
+import type { AniListItem, CRSeason } from '@/lib/types';
 
 const item = (english: string | null, romaji: string | null = null, synonyms: string[] = []): AniListItem => ({
   id: 1,
@@ -56,4 +56,33 @@ describe('pickSeries', () => {
   it('rejects weak hits', () => expect(pickSeries([{ id: 'X', title: 'Something Else' }], ['Frieren'])).toBeNull());
   it('ignores duplicate hits of the same series', () =>
     expect(pickSeries([{ id: 'F', title: 'Frieren' }, { id: 'F', title: 'Frieren' }], ['Frieren Season 2'])?.id).toBe('F'));
+});
+
+describe('originalSeasons', () => {
+  const season = (id: string, locale: string, versions: { guid: string; audio_locale: string; original: boolean }[]): CRSeason => ({
+    id,
+    title: 'Season 3',
+    series_id: 'S',
+    season_number: 3,
+    audio_locale: locale,
+    versions,
+  });
+  const ja = { guid: 'GJA', audio_locale: 'ja-JP', original: true };
+  const en = { guid: 'GEN', audio_locale: 'en-US', original: false };
+
+  it('swaps a dub-listed season for its original version', () => {
+    expect(originalSeasons([season('GEN', 'en-US', [ja, en])]).map((s) => [s.id, s.audio_locale])).toEqual([['GJA', 'ja-JP']]);
+  });
+  it('keeps originals, drops dub-only seasons, dedupes', () => {
+    const out = originalSeasons([season('GJA', 'ja-JP', [ja, en]), season('GEN', 'en-US', [ja, en]), season('GX', 'en-US', [{ ...en, guid: 'GX' }])]);
+    expect(out.map((s) => s.id)).toEqual(['GJA']);
+  });
+});
+
+describe('isMainSeason', () => {
+  it('ignores empty display numbers when no season has one', () => {
+    expect(isMainSeason({ title: 'Season 3', season_display_number: '' }, false)).toBe(true);
+    expect(isMainSeason({ title: 'Season 3', season_display_number: '' }, true)).toBe(false);
+    expect(isMainSeason({ title: 'Chainsaw Man - The Compilation', season_display_number: '2' })).toBe(false);
+  });
 });
