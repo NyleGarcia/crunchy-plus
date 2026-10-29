@@ -1,11 +1,13 @@
 ---
 title: Changelog
 tags: [changelog]
-updated: 2026-10-22
+updated: 2026-10-29
 ---
 # Changelog
 
 ## Unreleased
+
+## 0.3.0 — 2026-10-29
 - Card badges with an English-audio Crunchyroll profile: CR lists every season as its dub, so nearly all episodes were dropped as dubs ("Watching 4 of 2 out"). Seasons are now counted from their original-audio version; seasons are no longer all flagged as extras when CR leaves display numbers empty (new-season pills work again), and a "Season N" title beats CR's season number when matching (MHA S7 was matched to "Memories").
 - Leaving a Crunchyroll tab open across an extension reload shows one "reload this page" notice instead of repeated "Extension context invalidated" errors.
 - Series pages open on the newest regular season (popup switch "Open shows on the newest season"), not season 1 or the last one watched; extras and dubs never win.
